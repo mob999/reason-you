@@ -157,7 +157,7 @@ stderr 显示 No such file or directory。
               create: async (input) => {
                 expect(input.model).toBe("third-party-model");
                 expect(input.messages[0]?.content).toContain("TypeError");
-                expect(input.extra_body).toBeUndefined();
+                expect(input.reasoning_split).toBeUndefined();
                 return {
                   choices: [
                     {
@@ -325,7 +325,7 @@ stderr 显示 No such file or directory。
     expect(deltas.join("")).toBe("原因:\n目标不存在。\n");
   });
 
-  test("auto-detects MiniMax and disables thinking in chat requests", async () => {
+  test("auto-detects MiniMax and requests reasoning split in chat requests", async () => {
     expect(isMiniMaxBaseUrl("https://api.minimax.io/v1")).toBe(true);
     expect(
       effectiveOpenAIApi({
@@ -365,10 +365,7 @@ stderr 显示 No such file or directory。
           chat: {
             completions: {
               create: async (input) => {
-                expect(input.extra_body).toEqual({
-                  thinking: false,
-                  reasoning_split: true,
-                });
+                expect(input.reasoning_split).toBe(true);
                 return streamChunks([
                   { choices: [{ delta: { reasoning_content: "hidden" } }] },
                   { choices: [{ delta: { content: "原因:\n目标不存在。" } }] },
