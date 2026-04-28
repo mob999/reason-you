@@ -14,7 +14,9 @@ describe("llm prompt", () => {
       timestamp: "2026-01-01T00:00:00.000Z",
       stderr: "token=[REDACTED_SECRET]\nTypeError",
     });
-    expect(prompt).toContain("原因、证据、下一步");
+    expect(prompt).toContain("Return strict JSON only");
+    expect(prompt).toContain("Do not reveal reasoning");
+    expect(prompt).toContain('"nextSteps":["..."]');
     expect(prompt).toContain("Command: npm test");
     expect(prompt).toContain("token=[REDACTED_SECRET]");
     expect(prompt).not.toContain("hunter2");
@@ -27,6 +29,41 @@ describe("llm prompt", () => {
     expect(parsed.summary).toBe("依赖缺失");
     expect(parsed.evidence).toBe("Cannot find module");
     expect(parsed.nextSteps).toEqual(["npm install", "npm test"]);
+  });
+
+  test("parses strict JSON diagnostic output", () => {
+    const parsed = parseDiagnosticText(
+      JSON.stringify({
+        summary: "路径不存在",
+        reason: "目标文件或目录不存在。",
+        evidence: "stderr 显示 No such file or directory。",
+        nextSteps: ["检查拼写", "运行 ls -la"],
+      }),
+    );
+
+    expect(parsed).toEqual({
+      summary: "路径不存在",
+      reason: "目标文件或目录不存在。",
+      evidence: "stderr 显示 No such file or directory。",
+      nextSteps: ["检查拼写", "运行 ls -la"],
+    });
+  });
+
+  test("filters model planning chatter from fallback text output", () => {
+    const parsed = parseDiagnosticText(`原因
+目标路径不存在。
+
+证据
+stderr 显示 No such file or directory。
+
+下一步
+- Make concise. Use Chinese. Also note: CWD is ~/reasonyou.
+- The path "xxx" likely is relative, but could also be absolute.
+- 检查当前目录下是否存在 xxx。
+- We'll output:
+`);
+
+    expect(parsed.nextSteps).toEqual(["检查当前目录下是否存在 xxx。"]);
   });
 
   test("uses injected OpenAI-compatible responses client", async () => {
@@ -53,8 +90,12 @@ describe("llm prompt", () => {
             create: async (input) => {
               expect(input.model).toBe("gpt-5");
               return {
-                output_text:
-                  "原因\n测试失败。\n\n证据\nTypeError\n\n下一步\n- 修复类型",
+                output_text: JSON.stringify({
+                  summary: "测试失败",
+                  reason: "测试运行失败。",
+                  evidence: "stderr 包含 TypeError。",
+                  nextSteps: ["修复类型"],
+                }),
               };
             },
           },
@@ -101,7 +142,7 @@ describe("llm prompt", () => {
                     {
                       message: {
                         content:
-                          "原因\n第三方接口可用。\n\n证据\nTypeError\n\n下一步\n- 继续",
+                          '{"summary":"第三方接口可用","reason":"第三方接口可用。","evidence":"TypeError","nextSteps":["继续"]}',
                       },
                     },
                   ],

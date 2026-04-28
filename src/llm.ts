@@ -27,10 +27,18 @@ export function buildDiagnosticPrompt(
   language = "zh-CN",
 ): string {
   return [
-    "你是一个面向开发者的命令行报错分析助手。",
-    `请使用 ${language} 输出，保持简洁。`,
-    "只输出以下三段：原因、证据、下一步。",
-    "不要编造不存在的日志；如果信息不足，请明确指出还需要什么。",
+    "You are a command-line error diagnostic engine.",
+    `Respond in ${language}. Be concise.`,
+    "Do not reveal reasoning, planning, analysis notes, hidden chain-of-thought, or drafting steps.",
+    "Do not say what you will output. Output only the final answer.",
+    "Return strict JSON only, with this exact shape:",
+    '{"summary":"...","reason":"...","evidence":"...","nextSteps":["..."]}',
+    "Rules:",
+    "- reason: one or two short sentences.",
+    "- evidence: cite only command, cwd, exit code, and stderr facts shown below.",
+    "- nextSteps: 1 to 4 concrete user actions, no meta commentary.",
+    "- If information is insufficient, say exactly what is missing.",
+    "- Do not wrap JSON in markdown.",
     "",
     "# Error Context",
     `Command: ${context.command}`,
@@ -87,16 +95,80 @@ async function createChatCompletion(
 export function parseDiagnosticText(
   text: string,
 ): Pick<DiagnosticResult, "summary" | "reason" | "evidence" | "nextSteps"> {
-  const reason = section(text, "原因") || text.trim();
-  const evidence = section(text, "证据");
-  const nextStepsText = section(text, "下一步");
+  const parsedJson = parseDiagnosticJson(text);
+  if (parsedJson) return parsedJson;
+
+  const cleanedText = stripMetaLines(text).trim();
+  const reason = section(cleanedText, "原因") || cleanedText;
+  const evidence = section(cleanedText, "证据");
+  const nextStepsText = section(cleanedText, "下一步");
   const nextSteps = nextStepsText
     ? nextStepsText
         .split("\n")
         .map((line) => line.replace(/^[-*\d.\s]+/, "").trim())
+        .filter((line) => !isMetaLine(line))
         .filter(Boolean)
     : [];
   return { summary: firstSentence(reason), reason, evidence, nextSteps };
+}
+
+function parseDiagnosticJson(
+  text: string,
+): Pick<
+  DiagnosticResult,
+  "summary" | "reason" | "evidence" | "nextSteps"
+> | null {
+  const candidate = extractJsonObject(text);
+  if (!candidate) return null;
+
+  try {
+    const parsed = JSON.parse(candidate) as Partial<{
+      summary: unknown;
+      reason: unknown;
+      evidence: unknown;
+      nextSteps: unknown;
+    }>;
+    const reason = stringValue(parsed.reason);
+    const evidence = stringValue(parsed.evidence);
+    const nextSteps = Array.isArray(parsed.nextSteps)
+      ? parsed.nextSteps.map(stringValue).filter(Boolean)
+      : [];
+    if (!reason && !evidence && nextSteps.length === 0) return null;
+
+    return {
+      summary: stringValue(parsed.summary) || firstSentence(reason),
+      reason,
+      evidence,
+      nextSteps,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extractJsonObject(text: string): string | null {
+  const fenced = /```(?:json)?\s*([\s\S]*?)\s*```/.exec(text);
+  const input = fenced?.[1] ?? text;
+  const start = input.indexOf("{");
+  const end = input.lastIndexOf("}");
+  return start >= 0 && end > start ? input.slice(start, end + 1) : null;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function stripMetaLines(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !isMetaLine(line.trim()))
+    .join("\n");
+}
+
+function isMetaLine(line: string): boolean {
+  return /\b(we can say|we'll output|we will output|ensure not to|make concise|use chinese|the command was probably|likely is relative|ok, that's straightforward|also note:|so we can say)\b/i.test(
+    line,
+  );
 }
 
 function section(text: string, title: string): string {
