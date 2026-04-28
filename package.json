@@ -1,0 +1,33 @@
+{
+  "name": "reasonyou",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "version": "0.1.0",
+  "description": "CLI tool that explains recent command-line errors with an LLM.",
+  "scripts": {
+    "dev": "bun run index.ts",
+    "build": "bun build ./index.ts --compile --outfile dist/reasonyou",
+    "check": "tsc --noEmit",
+    "format": "prettier --check .",
+    "format:write": "prettier --write .",
+    "test": "bun test"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "docs/prd.md"
+  ],
+  "devDependencies": {
+    "@types/bun": "latest",
+    "prettier": "^3.8.3"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "commander": "^14.0.3",
+    "openai": "^6.34.0"
+  },
+  "packageManager": "bun@1.3.13"
+}
