@@ -22,6 +22,7 @@ import {
   type SupportedShell,
 } from "./shell";
 import type { DiagnosticContext, ReasonYouConfig } from "./types";
+import { VERSION } from "./version";
 
 type AnalyzeOptions = {
   json?: boolean;
@@ -45,6 +46,7 @@ export function buildProgram(): Command {
   program
     .name("reasonyou")
     .description("Explain the most recent failed shell command with an LLM.")
+    .version(VERSION, "--version", "print version")
     .helpCommand("help [command]", "display help for command")
     .option("--json", "print machine-readable JSON")
     .option("--model <model>", "override the OpenAI model for this run")

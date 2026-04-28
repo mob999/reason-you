@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { buildProgram } from "../src/cli";
+import { VERSION } from "../src/version";
 
 describe("cli", () => {
   test("registers the expected command surface", () => {
@@ -12,6 +13,10 @@ describe("cli", () => {
     expect(help).toContain("--base-url <url>");
     expect(help).toContain("--openai-api <mode>");
     expect(help).toContain("--no-redact");
+  });
+
+  test("prints the package version", () => {
+    expect(buildProgram().version()).toBe(VERSION);
   });
 
   test("registers init shell options through commander", () => {
