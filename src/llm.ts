@@ -127,13 +127,11 @@ async function collectResponseStream(
   model: string,
   prompt: string,
 ): Promise<string> {
-  const stream = await (
-    client.responses.create as unknown as (input: {
-      model: string;
-      input: string;
-      stream: true;
-    }) => Promise<AsyncIterable<Record<string, unknown>>>
-  )({ model, input: prompt, stream: true });
+  const stream = (await client.responses.create({
+    model,
+    input: prompt,
+    stream: true,
+  })) as unknown as AsyncIterable<Record<string, unknown>>;
 
   let output = "";
   for await (const event of stream) {
@@ -147,18 +145,11 @@ async function collectChatCompletionStream(
   model: string,
   prompt: string,
 ): Promise<string> {
-  const create = client.chat?.completions.create as
-    | ((input: {
-        model: string;
-        messages: Array<{ role: "user"; content: string }>;
-        stream: true;
-      }) => Promise<AsyncIterable<Record<string, unknown>>>)
-    | undefined;
-  const stream = await create?.({
+  const stream = (await client.chat?.completions.create({
     model,
     messages: [{ role: "user", content: prompt }],
     stream: true,
-  });
+  })) as AsyncIterable<Record<string, unknown>> | undefined;
 
   let output = "";
   if (!stream) return output;
