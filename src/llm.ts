@@ -182,13 +182,13 @@ export function formatDiagnosticResult(
   diagnostic: Pick<DiagnosticResult, "reason" | "evidence" | "nextSteps">,
 ): string {
   const lines = [
-    "原因",
+    "原因:",
     diagnostic.reason,
     "",
-    "证据",
+    "证据:",
     diagnostic.evidence || "暂无更多证据。",
     "",
-    "下一步",
+    "下一步:",
     ...(diagnostic.nextSteps.length
       ? diagnostic.nextSteps.map((step) => `- ${step}`)
       : ["- 补充 stderr 后再次运行 reasonyou。"]),
