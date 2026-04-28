@@ -366,6 +366,7 @@ stderr 显示 No such file or directory。
             completions: {
               create: async (input) => {
                 expect(input.reasoning_split).toBe(true);
+                expect(input.enable_thinking).toBe(false);
                 return streamChunks([
                   { choices: [{ delta: { reasoning_content: "hidden" } }] },
                   { choices: [{ delta: { content: "原因:\n目标不存在。" } }] },

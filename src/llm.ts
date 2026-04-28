@@ -21,6 +21,7 @@ export type OpenAIResponsesClient = {
         messages: Array<{ role: "user"; content: string }>;
         stream?: boolean;
         reasoning_split?: boolean;
+        enable_thinking?: boolean;
       }): Promise<{ choices: Array<{ message: { content: string | null } }> }>;
     };
   };
@@ -275,8 +276,11 @@ export function effectiveOpenAIApi(
 
 function providerRequestOptions(config: Pick<ReasonYouConfig, "baseUrl">): {
   reasoning_split?: boolean;
+  enable_thinking?: boolean;
 } {
-  return isMiniMaxBaseUrl(config.baseUrl) ? { reasoning_split: true } : {};
+  return isMiniMaxBaseUrl(config.baseUrl)
+    ? { reasoning_split: true, enable_thinking: false }
+    : {};
 }
 
 function responseStreamText(event: Record<string, unknown>): string {
