@@ -1,8 +1,10 @@
 import { dirname } from "node:path";
 import { configPath } from "./paths";
-import type { OpenAIApiMode, ReasonYouConfig } from "./types";
+import type { OpenAIApiMode, Provider, ReasonYouConfig } from "./types";
 
 export const DEFAULT_CONFIG: ReasonYouConfig = {
+  provider: undefined,
+  apiKey: undefined,
   model: "gpt-5",
   baseUrl: undefined,
   openaiApi: "auto",
@@ -46,8 +48,19 @@ export async function writeConfigValue(
   return loadConfig();
 }
 
+export async function writeConfig(
+  config: Partial<ReasonYouConfig>,
+): Promise<ReasonYouConfig> {
+  const next = normalizePartialConfig(config);
+  await Bun.$`mkdir -p ${dirname(configPath())}`.quiet();
+  await Bun.write(configPath(), `${JSON.stringify(next, null, 2)}\n`);
+  return loadConfig();
+}
+
 export function configFromEnv(env = process.env): Partial<ReasonYouConfig> {
   return normalizePartialConfig({
+    apiKey: env.REASONYOU_API_KEY ?? env.OPENAI_API_KEY,
+    provider: env.REASONYOU_PROVIDER as Provider | undefined,
     model: env.REASONYOU_MODEL,
     baseUrl: env.REASONYOU_BASE_URL ?? env.OPENAI_BASE_URL,
     openaiApi: env.REASONYOU_OPENAI_API as OpenAIApiMode | undefined,
@@ -63,6 +76,8 @@ export function configFromEnv(env = process.env): Partial<ReasonYouConfig> {
 
 function normalizeConfig(config: ReasonYouConfig): ReasonYouConfig {
   return {
+    provider: provider(config.provider),
+    apiKey: optionalSecret(config.apiKey),
     model: nonEmpty(config.model, DEFAULT_CONFIG.model),
     baseUrl: optionalUrl(config.baseUrl),
     openaiApi: openaiApiMode(config.openaiApi),
@@ -79,6 +94,8 @@ function normalizePartialConfig(
   config: Partial<ReasonYouConfig>,
 ): Partial<ReasonYouConfig> {
   const next: Partial<ReasonYouConfig> = {};
+  if (config.provider !== undefined) next.provider = provider(config.provider);
+  if (config.apiKey !== undefined) next.apiKey = optionalSecret(config.apiKey);
   if (config.model !== undefined)
     next.model = nonEmpty(config.model, DEFAULT_CONFIG.model);
   if (config.baseUrl !== undefined) next.baseUrl = optionalUrl(config.baseUrl);
@@ -116,6 +133,14 @@ function parseConfigValue(
   return value;
 }
 
+function provider(value: Provider | undefined): Provider | undefined {
+  return value === "minimax-intl" ||
+    value === "minimax-cn" ||
+    value === "custom"
+    ? value
+    : undefined;
+}
+
 function openaiApiMode(value: OpenAIApiMode | undefined): OpenAIApiMode {
   return value === "chat" || value === "responses"
     ? value
@@ -131,6 +156,11 @@ function nonEmpty(value: string, fallback: string): string {
 }
 
 function optionalUrl(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function optionalSecret(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
 }

@@ -11,6 +11,9 @@ beforeEach(async () => {
   originalEnv = { ...process.env };
   tempDir = await mkdtemp(join(tmpdir(), "reasonyou-config-"));
   process.env.REASONYOU_CONFIG_PATH = join(tempDir, "config.json");
+  delete process.env.REASONYOU_PROVIDER;
+  delete process.env.REASONYOU_API_KEY;
+  delete process.env.OPENAI_API_KEY;
   delete process.env.REASONYOU_MODEL;
   delete process.env.REASONYOU_BASE_URL;
   delete process.env.REASONYOU_OPENAI_API;
@@ -31,6 +34,8 @@ describe("config", () => {
       join(tempDir, "config.json"),
       JSON.stringify({
         model: "user-model",
+        provider: "custom",
+        apiKey: "user-key",
         baseUrl: "https://user.example/v1",
         openaiApi: "chat",
         historyLimit: 10,
@@ -38,6 +43,7 @@ describe("config", () => {
       "utf8",
     );
     process.env.REASONYOU_MODEL = "env-model";
+    process.env.REASONYOU_API_KEY = "env-key";
     process.env.OPENAI_BASE_URL = "https://openai-env.example/v1";
     process.env.REASONYOU_BASE_URL = "https://env.example/v1";
     const config = await loadConfig({
@@ -45,6 +51,8 @@ describe("config", () => {
       baseUrl: "https://flag.example/v1",
     });
     expect(config.model).toBe("flag-model");
+    expect(config.apiKey).toBe("env-key");
+    expect(config.provider).toBe("custom");
     expect(config.baseUrl).toBe("https://flag.example/v1");
     expect(config.openaiApi).toBe("chat");
     expect(config.language).toBe("zh-CN");
@@ -62,6 +70,8 @@ describe("config", () => {
   test("ignores undefined overrides instead of replacing defaults", async () => {
     const config = await loadConfig({
       model: undefined,
+      provider: undefined,
+      apiKey: undefined,
       baseUrl: undefined,
       openaiApi: undefined,
       language: undefined,
@@ -70,6 +80,8 @@ describe("config", () => {
     });
 
     expect(config.model).toBe("gpt-5");
+    expect(config.provider).toBeUndefined();
+    expect(config.apiKey).toBeUndefined();
     expect(config.baseUrl).toBeUndefined();
     expect(config.openaiApi).toBe("auto");
     expect(config.language).toBe("zh-CN");
@@ -83,5 +95,13 @@ describe("config", () => {
     const config = await loadConfig();
 
     expect(config.openaiApi).toBe("chat");
+  });
+
+  test("reads OPENAI_API_KEY when project-specific key is not set", async () => {
+    process.env.OPENAI_API_KEY = "openai-env-key";
+
+    const config = await loadConfig();
+
+    expect(config.apiKey).toBe("openai-env-key");
   });
 });

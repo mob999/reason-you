@@ -1,6 +1,9 @@
 export type OpenAIApiMode = "auto" | "responses" | "chat";
+export type Provider = "minimax-intl" | "minimax-cn" | "custom";
 
 export type ReasonYouConfig = {
+  provider?: Provider;
+  apiKey?: string;
   model: string;
   baseUrl?: string;
   openaiApi: OpenAIApiMode;

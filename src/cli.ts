@@ -11,6 +11,11 @@ import {
 import { configPath, historyPath } from "./paths";
 import { redactText } from "./redact";
 import {
+  ensureInteractiveConfig,
+  maskedSecret,
+  promptForConfig,
+} from "./setup";
+import {
   detectShell,
   installHook,
   isHookInstalled,
@@ -92,6 +97,7 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
     openaiApi: options.openaiApi,
     redact: options.noRedact ? false : undefined,
   });
+  const configured = await ensureInteractiveConfig(config);
   const record = await latestFailureRecord();
   if (!record) {
     console.error(
@@ -100,9 +106,9 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  if (!process.env.OPENAI_API_KEY) {
+  if (!configured.apiKey) {
     console.error(
-      "Missing OPENAI_API_KEY. Set it before running live analysis, or run `reasonyou doctor` to inspect setup.",
+      "Missing API key. Run `reasonyou init` to configure a provider.",
     );
     process.exitCode = 1;
     return;
@@ -121,15 +127,17 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
       timestamp: record.timestamp,
       stderr,
     },
-    config,
+    configured,
   );
   if (options.json) {
-    const diagnostic = await analyzeWithOpenAI(context, config, { redacted });
+    const diagnostic = await analyzeWithOpenAI(context, configured, {
+      redacted,
+    });
     console.log(JSON.stringify(diagnostic, null, 2));
     return;
   }
 
-  await streamDiagnosticText(context, config, {
+  await streamDiagnosticText(context, configured, {
     onDelta: (text) => {
       process.stdout.write(text);
     },
@@ -138,6 +146,7 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
 }
 
 async function handleInit(options: InitOptions): Promise<void> {
+  await promptForConfig(await loadConfig());
   const shell = options.shell ?? detectShell();
   const result = await installHook(shell);
   console.log(
@@ -154,17 +163,18 @@ async function handleDoctor(): Promise<void> {
   const shell = detectShell();
   const config = await loadConfig();
   const checks = [
-    [
-      "OpenAI API key",
-      Boolean(process.env.OPENAI_API_KEY),
-      "Set OPENAI_API_KEY before live analysis.",
-    ],
+    ["API key", Boolean(config.apiKey), maskedSecret(config.apiKey)],
     [
       `${shell} hook`,
       isHookInstalled(shell),
       "Run `reasonyou init` and restart your shell.",
     ],
     ["Config path", true, configPath()],
+    [
+      "Provider",
+      Boolean(config.provider),
+      config.provider ?? "Run `reasonyou init`.",
+    ],
     ["OpenAI base URL", true, config.baseUrl ?? "default"],
     [
       "OpenAI API mode",
@@ -180,14 +190,26 @@ async function handleDoctor(): Promise<void> {
 
 async function handleConfigGet(key?: keyof ReasonYouConfig): Promise<void> {
   const config = await loadConfig();
-  console.log(key ? String(config[key]) : JSON.stringify(config, null, 2));
+  const displayConfig = redactConfig(config);
+  console.log(
+    key ? String(displayConfig[key]) : JSON.stringify(displayConfig, null, 2),
+  );
 }
 
 async function handleConfigSet(
   key: keyof ReasonYouConfig,
   value: string,
 ): Promise<void> {
-  console.log(JSON.stringify(await writeConfigValue(key, value), null, 2));
+  console.log(
+    JSON.stringify(redactConfig(await writeConfigValue(key, value)), null, 2),
+  );
+}
+
+function redactConfig(config: ReasonYouConfig): ReasonYouConfig {
+  return {
+    ...config,
+    apiKey: maskedSecret(config.apiKey),
+  };
 }
 
 function applyRedaction(
@@ -247,6 +269,8 @@ function parseOptionalConfigKey(
 function parseConfigKey(value: string): keyof ReasonYouConfig {
   if (
     value === "model" ||
+    value === "provider" ||
+    value === "apiKey" ||
     value === "baseUrl" ||
     value === "openaiApi" ||
     value === "language" ||
@@ -256,7 +280,7 @@ function parseConfigKey(value: string): keyof ReasonYouConfig {
     return value;
   }
   throw new InvalidArgumentError(
-    "expected one of: model, baseUrl, openaiApi, language, redact, historyLimit",
+    "expected one of: provider, apiKey, model, baseUrl, openaiApi, language, redact, historyLimit",
   );
 }
 

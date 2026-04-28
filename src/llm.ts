@@ -20,8 +20,6 @@ export type OpenAIResponsesClient = {
         model: string;
         messages: Array<{ role: "user"; content: string }>;
         stream?: boolean;
-        reasoning_split?: boolean;
-        enable_thinking?: boolean;
       }): Promise<{ choices: Array<{ message: { content: string | null } }> }>;
     };
   };
@@ -97,6 +95,7 @@ export async function analyzeWithOpenAI(
   const client =
     options.client ??
     (new OpenAI({
+      apiKey: config.apiKey,
       baseURL: config.baseUrl,
     }) as unknown as OpenAIResponsesClient);
   const prompt = buildDiagnosticPrompt(context, config.language);
@@ -122,6 +121,7 @@ export async function analyzeWithOpenAIStream(
   const client =
     options.client ??
     (new OpenAI({
+      apiKey: config.apiKey,
       baseURL: config.baseUrl,
     }) as unknown as OpenAIResponsesClient);
   const prompt = buildDiagnosticPrompt(context, config.language);
@@ -150,6 +150,7 @@ export async function streamDiagnosticText(
   const client =
     options.client ??
     (new OpenAI({
+      apiKey: config.apiKey,
       baseURL: config.baseUrl,
     }) as unknown as OpenAIResponsesClient);
   const prompt = buildDiagnosticTextPrompt(context, config.language);
@@ -180,9 +181,8 @@ async function createChatCompletion(
   const response = await client.chat?.completions.create({
     model: config.model,
     messages: [{ role: "user", content: prompt }],
-    ...providerRequestOptions(config),
   });
-  return response?.choices[0]?.message.content ?? "";
+  return stripThinkTags(response?.choices[0]?.message.content ?? "");
 }
 
 async function streamResponseText(
@@ -213,12 +213,12 @@ async function streamChatCompletionText(
     model: config.model,
     messages: [{ role: "user", content: prompt }],
     stream: true,
-    ...providerRequestOptions(config),
   })) as AsyncIterable<Record<string, unknown>> | undefined;
 
   if (!stream) return;
+  const thinkFilter = new ThinkTagFilter();
   for await (const chunk of stream) {
-    const text = chatStreamText(chunk);
+    const text = thinkFilter.push(chatStreamText(chunk));
     if (text) await onDelta(text);
   }
 }
@@ -250,13 +250,13 @@ async function collectChatCompletionStream(
     model: config.model,
     messages: [{ role: "user", content: prompt }],
     stream: true,
-    ...providerRequestOptions(config),
   })) as AsyncIterable<Record<string, unknown>> | undefined;
 
   let output = "";
   if (!stream) return output;
+  const thinkFilter = new ThinkTagFilter();
   for await (const chunk of stream) {
-    output += chatStreamText(chunk);
+    output += thinkFilter.push(chatStreamText(chunk));
   }
   return output;
 }
@@ -274,15 +274,6 @@ export function effectiveOpenAIApi(
   return isMiniMaxBaseUrl(config.baseUrl) ? "chat" : "responses";
 }
 
-function providerRequestOptions(config: Pick<ReasonYouConfig, "baseUrl">): {
-  reasoning_split?: boolean;
-  enable_thinking?: boolean;
-} {
-  return isMiniMaxBaseUrl(config.baseUrl)
-    ? { reasoning_split: true, enable_thinking: false }
-    : {};
-}
-
 function responseStreamText(event: Record<string, unknown>): string {
   if (typeof event.delta === "string") return event.delta;
   if (typeof event.output_text === "string") return event.output_text;
@@ -298,8 +289,44 @@ function responseStreamText(event: Record<string, unknown>): string {
 function chatStreamText(chunk: Record<string, unknown>): string {
   const choices = chunk.choices;
   if (!Array.isArray(choices)) return "";
-  const first = choices[0] as { delta?: { content?: unknown } } | undefined;
+  const first = choices[0] as
+    | {
+        delta?: {
+          content?: unknown;
+          reasoning_content?: unknown;
+          reasoning_details?: unknown;
+        };
+      }
+    | undefined;
   return typeof first?.delta?.content === "string" ? first.delta.content : "";
+}
+
+class ThinkTagFilter {
+  private buffer = "";
+
+  push(text: string): string {
+    this.buffer += text;
+    let output = "";
+
+    while (this.buffer) {
+      const start = this.buffer.indexOf("<think>");
+      if (start === -1) {
+        output += this.buffer;
+        this.buffer = "";
+        break;
+      }
+
+      output += this.buffer.slice(0, start);
+      const end = this.buffer.indexOf("</think>", start);
+      if (end === -1) {
+        this.buffer = this.buffer.slice(start);
+        break;
+      }
+      this.buffer = this.buffer.slice(end + "</think>".length);
+    }
+
+    return output;
+  }
 }
 
 export function formatDiagnosticResult(
@@ -323,10 +350,11 @@ export function formatDiagnosticResult(
 export function parseDiagnosticText(
   text: string,
 ): Pick<DiagnosticResult, "summary" | "reason" | "evidence" | "nextSteps"> {
-  const parsedJson = parseDiagnosticJson(text);
+  const visibleText = stripThinkTags(text);
+  const parsedJson = parseDiagnosticJson(visibleText);
   if (parsedJson) return parsedJson;
 
-  const cleanedText = stripMetaLines(text).trim();
+  const cleanedText = stripMetaLines(visibleText).trim();
   const reason = section(cleanedText, "原因") || cleanedText;
   const evidence = section(cleanedText, "证据");
   const nextStepsText = section(cleanedText, "下一步");
@@ -384,6 +412,10 @@ function extractJsonObject(text: string): string | null {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function stripThinkTags(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }
 
 function stripMetaLines(text: string): string {

@@ -157,7 +157,7 @@ stderr 显示 No such file or directory。
               create: async (input) => {
                 expect(input.model).toBe("third-party-model");
                 expect(input.messages[0]?.content).toContain("TypeError");
-                expect(input.reasoning_split).toBeUndefined();
+                expect("reasoning_split" in input).toBe(false);
                 return {
                   choices: [
                     {
@@ -325,7 +325,7 @@ stderr 显示 No such file or directory。
     expect(deltas.join("")).toBe("原因:\n目标不存在。\n");
   });
 
-  test("auto-detects MiniMax and requests reasoning split in chat requests", async () => {
+  test("auto-detects MiniMax and hides thinking content without thinking params", async () => {
     expect(isMiniMaxBaseUrl("https://api.minimax.io/v1")).toBe(true);
     expect(
       effectiveOpenAIApi({
@@ -355,7 +355,9 @@ stderr 显示 No such file or directory。
         historyLimit: 50,
       },
       {
-        onDelta: () => {},
+        onDelta: (text) => {
+          expect(text).not.toContain("<think>");
+        },
         client: {
           responses: {
             create: async () => {
@@ -365,11 +367,16 @@ stderr 显示 No such file or directory。
           chat: {
             completions: {
               create: async (input) => {
-                expect(input.reasoning_split).toBe(true);
-                expect(input.enable_thinking).toBe(false);
+                expect("reasoning_split" in input).toBe(false);
+                expect("enable_thinking" in input).toBe(false);
                 return streamChunks([
                   { choices: [{ delta: { reasoning_content: "hidden" } }] },
-                  { choices: [{ delta: { content: "原因:\n目标不存在。" } }] },
+                  { choices: [{ delta: { content: "<think>hidden" } }] },
+                  {
+                    choices: [
+                      { delta: { content: "</think>原因:\n目标不存在。" } },
+                    ],
+                  },
                 ]) as never;
               },
             },
@@ -377,6 +384,14 @@ stderr 显示 No such file or directory。
         },
       },
     );
+  });
+
+  test("removes think tags before parsing JSON output", () => {
+    const parsed = parseDiagnosticText(
+      '<think>hidden</think>{"summary":"ok","reason":"正文","evidence":"stderr","nextSteps":["继续"]}',
+    );
+
+    expect(parsed.reason).toBe("正文");
   });
 
   test("formats diagnostics for terminal output", () => {
