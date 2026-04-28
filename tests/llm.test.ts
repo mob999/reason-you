@@ -3,8 +3,12 @@ import {
   analyzeWithOpenAI,
   analyzeWithOpenAIStream,
   buildDiagnosticPrompt,
+  buildDiagnosticTextPrompt,
+  effectiveOpenAIApi,
   formatDiagnosticResult,
+  isMiniMaxBaseUrl,
   parseDiagnosticText,
+  streamDiagnosticText,
 } from "../src/llm";
 
 describe("llm prompt", () => {
@@ -22,6 +26,20 @@ describe("llm prompt", () => {
     expect(prompt).toContain("Command: npm test");
     expect(prompt).toContain("token=[REDACTED_SECRET]");
     expect(prompt).not.toContain("hunter2");
+  });
+
+  test("builds a streaming text prompt for terminal output", () => {
+    const prompt = buildDiagnosticTextPrompt({
+      command: "ls xxx",
+      cwd: "/repo",
+      exitCode: 1,
+      timestamp: "2026-01-01T00:00:00.000Z",
+      stderr: "ls: xxx: No such file or directory",
+    });
+
+    expect(prompt).toContain("Stream only the final answer");
+    expect(prompt).toContain("原因:");
+    expect(prompt).toContain("Do not output JSON");
   });
 
   test("parses the three section output shape", () => {
@@ -139,6 +157,7 @@ stderr 显示 No such file or directory。
               create: async (input) => {
                 expect(input.model).toBe("third-party-model");
                 expect(input.messages[0]?.content).toContain("TypeError");
+                expect(input.extra_body).toBeUndefined();
                 return {
                   choices: [
                     {
@@ -260,6 +279,108 @@ stderr 显示 No such file or directory。
     expect(result.nextSteps).toEqual(["检查路径"]);
   });
 
+  test("streams terminal text deltas directly", async () => {
+    const deltas: string[] = [];
+
+    await streamDiagnosticText(
+      {
+        command: "ls xxx",
+        cwd: "/repo",
+        exitCode: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        stderr: "ls: xxx: No such file or directory",
+      },
+      {
+        model: "third-party-model",
+        openaiApi: "chat",
+        language: "zh-CN",
+        redact: true,
+        historyLimit: 50,
+      },
+      {
+        onDelta: (text) => {
+          deltas.push(text);
+        },
+        client: {
+          responses: {
+            create: async () => {
+              throw new Error("responses should not be used");
+            },
+          },
+          chat: {
+            completions: {
+              create: async (input) => {
+                expect(input.messages[0]?.content).toContain("原因:");
+                return streamChunks([
+                  { choices: [{ delta: { content: "原因:\n" } }] },
+                  { choices: [{ delta: { content: "目标不存在。\n" } }] },
+                ]) as never;
+              },
+            },
+          },
+        },
+      },
+    );
+
+    expect(deltas.join("")).toBe("原因:\n目标不存在。\n");
+  });
+
+  test("auto-detects MiniMax and disables thinking in chat requests", async () => {
+    expect(isMiniMaxBaseUrl("https://api.minimax.io/v1")).toBe(true);
+    expect(
+      effectiveOpenAIApi({
+        model: "minimax-text",
+        baseUrl: "https://api.minimax.io/v1",
+        openaiApi: "auto",
+        language: "zh-CN",
+        redact: true,
+        historyLimit: 50,
+      }),
+    ).toBe("chat");
+
+    await streamDiagnosticText(
+      {
+        command: "ls xxx",
+        cwd: "/repo",
+        exitCode: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        stderr: "ls: xxx: No such file or directory",
+      },
+      {
+        model: "minimax-text",
+        baseUrl: "https://api.minimax.io/v1",
+        openaiApi: "auto",
+        language: "zh-CN",
+        redact: true,
+        historyLimit: 50,
+      },
+      {
+        onDelta: () => {},
+        client: {
+          responses: {
+            create: async () => {
+              throw new Error("responses should not be used");
+            },
+          },
+          chat: {
+            completions: {
+              create: async (input) => {
+                expect(input.extra_body).toEqual({
+                  thinking: false,
+                  reasoning_split: true,
+                });
+                return streamChunks([
+                  { choices: [{ delta: { reasoning_content: "hidden" } }] },
+                  { choices: [{ delta: { content: "原因:\n目标不存在。" } }] },
+                ]) as never;
+              },
+            },
+          },
+        },
+      },
+    );
+  });
+
   test("formats diagnostics for terminal output", () => {
     expect(
       formatDiagnosticResult({
@@ -268,7 +389,7 @@ stderr 显示 No such file or directory。
         nextSteps: ["检查路径"],
       }),
     ).toBe(
-      "原因\n目标不存在。\n\n证据\nstderr 显示 No such file or directory。\n\n下一步\n- 检查路径\n",
+      "原因:\n目标不存在。\n\n证据:\nstderr 显示 No such file or directory。\n\n下一步:\n- 检查路径\n",
     );
   });
 });

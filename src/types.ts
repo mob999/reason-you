@@ -1,4 +1,4 @@
-export type OpenAIApiMode = "responses" | "chat";
+export type OpenAIApiMode = "auto" | "responses" | "chat";
 
 export type ReasonYouConfig = {
   model: string;

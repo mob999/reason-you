@@ -5,8 +5,8 @@ import { loadConfig, writeConfigValue } from "./config";
 import { hasUsefulStderr, latestFailureRecord } from "./history";
 import {
   analyzeWithOpenAI,
-  analyzeWithOpenAIStream,
-  formatDiagnosticResult,
+  effectiveOpenAIApi,
+  streamDiagnosticText,
 } from "./llm";
 import { configPath, historyPath } from "./paths";
 import { redactText } from "./redact";
@@ -22,7 +22,7 @@ type AnalyzeOptions = {
   json?: boolean;
   model?: string;
   baseUrl?: string;
-  openaiApi?: "responses" | "chat";
+  openaiApi?: "auto" | "responses" | "chat";
   noRedact?: boolean;
 };
 
@@ -46,7 +46,7 @@ export function buildProgram(): Command {
     .option("--base-url <url>", "override the OpenAI-compatible base URL")
     .option(
       "--openai-api <mode>",
-      "OpenAI API mode: responses or chat",
+      "OpenAI API mode: auto, responses, or chat",
       parseOpenAIApiMode,
     )
     .option("--no-redact", "send command context without local redaction")
@@ -123,15 +123,18 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
     },
     config,
   );
-  const diagnostic = options.json
-    ? await analyzeWithOpenAI(context, config, { redacted })
-    : await analyzeWithOpenAIStream(context, config, { redacted });
   if (options.json) {
+    const diagnostic = await analyzeWithOpenAI(context, config, { redacted });
     console.log(JSON.stringify(diagnostic, null, 2));
     return;
   }
 
-  await typewriter(formatDiagnosticResult(diagnostic));
+  await streamDiagnosticText(context, config, {
+    onDelta: (text) => {
+      process.stdout.write(text);
+    },
+  });
+  process.stdout.write("\n");
 }
 
 async function handleInit(options: InitOptions): Promise<void> {
@@ -149,6 +152,7 @@ async function handleInit(options: InitOptions): Promise<void> {
 
 async function handleDoctor(): Promise<void> {
   const shell = detectShell();
+  const config = await loadConfig();
   const checks = [
     [
       "OpenAI API key",
@@ -161,8 +165,12 @@ async function handleDoctor(): Promise<void> {
       "Run `reasonyou init` and restart your shell.",
     ],
     ["Config path", true, configPath()],
-    ["OpenAI base URL", true, (await loadConfig()).baseUrl ?? "default"],
-    ["OpenAI API mode", true, (await loadConfig()).openaiApi],
+    ["OpenAI base URL", true, config.baseUrl ?? "default"],
+    [
+      "OpenAI API mode",
+      true,
+      `${config.openaiApi} (${effectiveOpenAIApi(config)})`,
+    ],
     ["History file", existsSync(historyPath()), historyPath()],
   ] as const;
   for (const [label, ok, detail] of checks) {
@@ -225,18 +233,6 @@ async function rerunCommand(command: string, cwd: string): Promise<string> {
   });
 }
 
-async function typewriter(text: string): Promise<void> {
-  if (!process.stdout.isTTY) {
-    process.stdout.write(text);
-    return;
-  }
-
-  for (const char of text) {
-    process.stdout.write(char);
-    if (char !== "\n") await Bun.sleep(8);
-  }
-}
-
 function parseShell(value: string): SupportedShell {
   if (value === "zsh" || value === "bash") return value;
   throw new InvalidArgumentError("expected zsh or bash");
@@ -264,7 +260,9 @@ function parseConfigKey(value: string): keyof ReasonYouConfig {
   );
 }
 
-function parseOpenAIApiMode(value: string): "responses" | "chat" {
-  if (value === "responses" || value === "chat") return value;
-  throw new InvalidArgumentError("expected responses or chat");
+function parseOpenAIApiMode(value: string): "auto" | "responses" | "chat" {
+  if (value === "auto" || value === "responses" || value === "chat") {
+    return value;
+  }
+  throw new InvalidArgumentError("expected auto, responses, or chat");
 }

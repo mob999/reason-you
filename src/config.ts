@@ -5,7 +5,7 @@ import type { OpenAIApiMode, ReasonYouConfig } from "./types";
 export const DEFAULT_CONFIG: ReasonYouConfig = {
   model: "gpt-5",
   baseUrl: undefined,
-  openaiApi: "responses",
+  openaiApi: "auto",
   language: "zh-CN",
   redact: true,
   historyLimit: 50,
@@ -117,7 +117,9 @@ function parseConfigValue(
 }
 
 function openaiApiMode(value: OpenAIApiMode | undefined): OpenAIApiMode {
-  return value === "chat" ? "chat" : DEFAULT_CONFIG.openaiApi;
+  return value === "chat" || value === "responses"
+    ? value
+    : DEFAULT_CONFIG.openaiApi;
 }
 
 function parseBoolean(value: string): boolean {

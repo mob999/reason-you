@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type {
   DiagnosticContext,
   DiagnosticResult,
+  OpenAIApiMode,
   ReasonYouConfig,
 } from "./types";
 
@@ -19,6 +20,7 @@ export type OpenAIResponsesClient = {
         model: string;
         messages: Array<{ role: "user"; content: string }>;
         stream?: boolean;
+        extra_body?: Record<string, unknown>;
       }): Promise<{ choices: Array<{ message: { content: string | null } }> }>;
     };
   };
@@ -53,6 +55,39 @@ export function buildDiagnosticPrompt(
   ].join("\n");
 }
 
+export function buildDiagnosticTextPrompt(
+  context: DiagnosticContext,
+  language = "zh-CN",
+): string {
+  return [
+    "You are a command-line error diagnostic assistant.",
+    `Respond in ${language}. Be concise.`,
+    "Stream only the final answer in this exact text shape:",
+    "原因:",
+    "<one or two short sentences>",
+    "",
+    "证据:",
+    "<cite only command, cwd, exit code, and stderr facts shown below>",
+    "",
+    "下一步:",
+    "- <concrete action>",
+    "- <concrete action>",
+    "",
+    "Do not reveal reasoning, planning, analysis notes, hidden chain-of-thought, or drafting steps.",
+    "Do not output JSON, markdown fences, or extra commentary.",
+    "If information is insufficient, say exactly what is missing.",
+    "",
+    "# Error Context",
+    `Command: ${context.command}`,
+    `CWD: ${context.cwd}`,
+    `Exit Code: ${context.exitCode}`,
+    `Timestamp: ${context.timestamp}`,
+    "",
+    "# stderr",
+    context.stderr?.trim() || "(stderr 不可用)",
+  ].join("\n");
+}
+
 export async function analyzeWithOpenAI(
   context: DiagnosticContext,
   config: ReasonYouConfig,
@@ -64,9 +99,10 @@ export async function analyzeWithOpenAI(
       baseURL: config.baseUrl,
     }) as unknown as OpenAIResponsesClient);
   const prompt = buildDiagnosticPrompt(context, config.language);
+  const apiMode = effectiveOpenAIApi(config);
   const outputText =
-    config.openaiApi === "chat"
-      ? await createChatCompletion(client, config.model, prompt)
+    apiMode === "chat"
+      ? await createChatCompletion(client, config, prompt)
       : await createResponse(client, config.model, prompt);
 
   return {
@@ -88,9 +124,10 @@ export async function analyzeWithOpenAIStream(
       baseURL: config.baseUrl,
     }) as unknown as OpenAIResponsesClient);
   const prompt = buildDiagnosticPrompt(context, config.language);
+  const apiMode = effectiveOpenAIApi(config);
   const outputText =
-    config.openaiApi === "chat"
-      ? await collectChatCompletionStream(client, config.model, prompt)
+    apiMode === "chat"
+      ? await collectChatCompletionStream(client, config, prompt)
       : await collectResponseStream(client, config.model, prompt);
 
   return {
@@ -99,6 +136,30 @@ export async function analyzeWithOpenAIStream(
     exitCode: context.exitCode,
     redacted: options.redacted,
   };
+}
+
+export async function streamDiagnosticText(
+  context: DiagnosticContext,
+  config: ReasonYouConfig,
+  options: {
+    client?: OpenAIResponsesClient;
+    onDelta: (text: string) => void | Promise<void>;
+  },
+): Promise<void> {
+  const client =
+    options.client ??
+    (new OpenAI({
+      baseURL: config.baseUrl,
+    }) as unknown as OpenAIResponsesClient);
+  const prompt = buildDiagnosticTextPrompt(context, config.language);
+  const apiMode = effectiveOpenAIApi(config);
+
+  if (apiMode === "chat") {
+    await streamChatCompletionText(client, config, prompt, options.onDelta);
+    return;
+  }
+
+  await streamResponseText(client, config.model, prompt, options.onDelta);
 }
 
 async function createResponse(
@@ -112,14 +173,53 @@ async function createResponse(
 
 async function createChatCompletion(
   client: OpenAIResponsesClient,
-  model: string,
+  config: ReasonYouConfig,
   prompt: string,
 ): Promise<string> {
   const response = await client.chat?.completions.create({
-    model,
+    model: config.model,
     messages: [{ role: "user", content: prompt }],
+    ...providerRequestOptions(config),
   });
   return response?.choices[0]?.message.content ?? "";
+}
+
+async function streamResponseText(
+  client: OpenAIResponsesClient,
+  model: string,
+  prompt: string,
+  onDelta: (text: string) => void | Promise<void>,
+): Promise<void> {
+  const stream = (await client.responses.create({
+    model,
+    input: prompt,
+    stream: true,
+  })) as unknown as AsyncIterable<Record<string, unknown>>;
+
+  for await (const event of stream) {
+    const text = responseStreamText(event);
+    if (text) await onDelta(text);
+  }
+}
+
+async function streamChatCompletionText(
+  client: OpenAIResponsesClient,
+  config: ReasonYouConfig,
+  prompt: string,
+  onDelta: (text: string) => void | Promise<void>,
+): Promise<void> {
+  const stream = (await client.chat?.completions.create({
+    model: config.model,
+    messages: [{ role: "user", content: prompt }],
+    stream: true,
+    ...providerRequestOptions(config),
+  })) as AsyncIterable<Record<string, unknown>> | undefined;
+
+  if (!stream) return;
+  for await (const chunk of stream) {
+    const text = chatStreamText(chunk);
+    if (text) await onDelta(text);
+  }
 }
 
 async function collectResponseStream(
@@ -142,13 +242,14 @@ async function collectResponseStream(
 
 async function collectChatCompletionStream(
   client: OpenAIResponsesClient,
-  model: string,
+  config: ReasonYouConfig,
   prompt: string,
 ): Promise<string> {
   const stream = (await client.chat?.completions.create({
-    model,
+    model: config.model,
     messages: [{ role: "user", content: prompt }],
     stream: true,
+    ...providerRequestOptions(config),
   })) as AsyncIterable<Record<string, unknown>> | undefined;
 
   let output = "";
@@ -157,6 +258,27 @@ async function collectChatCompletionStream(
     output += chatStreamText(chunk);
   }
   return output;
+}
+
+export function isMiniMaxBaseUrl(baseUrl: string | undefined): boolean {
+  return Boolean(baseUrl && /minimax/i.test(baseUrl));
+}
+
+export function effectiveOpenAIApi(
+  config: ReasonYouConfig,
+): Exclude<OpenAIApiMode, "auto"> {
+  if (config.openaiApi === "chat" || config.openaiApi === "responses") {
+    return config.openaiApi;
+  }
+  return isMiniMaxBaseUrl(config.baseUrl) ? "chat" : "responses";
+}
+
+function providerRequestOptions(config: Pick<ReasonYouConfig, "baseUrl">): {
+  extra_body?: Record<string, unknown>;
+} {
+  return isMiniMaxBaseUrl(config.baseUrl)
+    ? { extra_body: { thinking: false, reasoning_split: true } }
+    : {};
 }
 
 function responseStreamText(event: Record<string, unknown>): string {

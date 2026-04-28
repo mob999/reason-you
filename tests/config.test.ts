@@ -71,7 +71,7 @@ describe("config", () => {
 
     expect(config.model).toBe("gpt-5");
     expect(config.baseUrl).toBeUndefined();
-    expect(config.openaiApi).toBe("responses");
+    expect(config.openaiApi).toBe("auto");
     expect(config.language).toBe("zh-CN");
     expect(config.redact).toBe(true);
     expect(config.historyLimit).toBe(50);
