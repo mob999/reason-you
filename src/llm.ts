@@ -12,6 +12,14 @@ export type OpenAIResponsesClient = {
       input: string;
     }): Promise<{ output_text: string }>;
   };
+  chat?: {
+    completions: {
+      create(input: {
+        model: string;
+        messages: Array<{ role: "user"; content: string }>;
+      }): Promise<{ choices: Array<{ message: { content: string | null } }> }>;
+    };
+  };
 };
 
 export function buildDiagnosticPrompt(
@@ -41,17 +49,39 @@ export async function analyzeWithOpenAI(
   options: { client?: OpenAIResponsesClient; redacted: boolean },
 ): Promise<DiagnosticResult> {
   const client = options.client ?? new OpenAI({ baseURL: config.baseUrl });
-  const response = await client.responses.create({
-    model: config.model,
-    input: buildDiagnosticPrompt(context, config.language),
-  });
+  const prompt = buildDiagnosticPrompt(context, config.language);
+  const outputText =
+    config.openaiApi === "chat"
+      ? await createChatCompletion(client, config.model, prompt)
+      : await createResponse(client, config.model, prompt);
 
   return {
-    ...parseDiagnosticText(response.output_text),
+    ...parseDiagnosticText(outputText),
     sourceCommand: context.command,
     exitCode: context.exitCode,
     redacted: options.redacted,
   };
+}
+
+async function createResponse(
+  client: OpenAIResponsesClient,
+  model: string,
+  prompt: string,
+): Promise<string> {
+  const response = await client.responses.create({ model, input: prompt });
+  return response.output_text;
+}
+
+async function createChatCompletion(
+  client: OpenAIResponsesClient,
+  model: string,
+  prompt: string,
+): Promise<string> {
+  const response = await client.chat?.completions.create({
+    model,
+    messages: [{ role: "user", content: prompt }],
+  });
+  return response?.choices[0]?.message.content ?? "";
 }
 
 export function parseDiagnosticText(

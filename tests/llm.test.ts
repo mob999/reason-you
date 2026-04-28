@@ -41,6 +41,7 @@ describe("llm prompt", () => {
       {
         model: "gpt-5",
         baseUrl: "https://example.test/v1",
+        openaiApi: "responses",
         language: "zh-CN",
         redact: true,
         historyLimit: 50,
@@ -63,5 +64,55 @@ describe("llm prompt", () => {
 
     expect(result.summary).toBe("测试失败");
     expect(result.redacted).toBe(true);
+  });
+
+  test("uses chat completions for OpenAI-compatible providers", async () => {
+    const result = await analyzeWithOpenAI(
+      {
+        command: "npm test",
+        cwd: "/repo",
+        exitCode: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        stderr: "TypeError",
+      },
+      {
+        model: "third-party-model",
+        baseUrl: "https://example.test/v1",
+        openaiApi: "chat",
+        language: "zh-CN",
+        redact: true,
+        historyLimit: 50,
+      },
+      {
+        redacted: true,
+        client: {
+          responses: {
+            create: async () => {
+              throw new Error("responses should not be used");
+            },
+          },
+          chat: {
+            completions: {
+              create: async (input) => {
+                expect(input.model).toBe("third-party-model");
+                expect(input.messages[0]?.content).toContain("TypeError");
+                return {
+                  choices: [
+                    {
+                      message: {
+                        content:
+                          "原因\n第三方接口可用。\n\n证据\nTypeError\n\n下一步\n- 继续",
+                      },
+                    },
+                  ],
+                };
+              },
+            },
+          },
+        },
+      },
+    );
+
+    expect(result.summary).toBe("第三方接口可用");
   });
 });

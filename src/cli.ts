@@ -18,6 +18,7 @@ type AnalyzeOptions = {
   json?: boolean;
   model?: string;
   baseUrl?: string;
+  openaiApi?: "responses" | "chat";
   noRedact?: boolean;
 };
 
@@ -39,6 +40,11 @@ export function buildProgram(): Command {
     .option("--json", "print machine-readable JSON")
     .option("--model <model>", "override the OpenAI model for this run")
     .option("--base-url <url>", "override the OpenAI-compatible base URL")
+    .option(
+      "--openai-api <mode>",
+      "OpenAI API mode: responses or chat",
+      parseOpenAIApiMode,
+    )
     .option("--no-redact", "send command context without local redaction")
     .action((options: AnalyzeOptions) => handleAnalyze(options));
 
@@ -79,12 +85,20 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
   const config = await loadConfig({
     model: options.model,
     baseUrl: options.baseUrl,
+    openaiApi: options.openaiApi,
     redact: options.noRedact ? false : undefined,
   });
   const record = await latestFailureRecord();
   if (!record) {
     console.error(
       "No failed command history found. Run `reasonyou init`, restart your shell, then run a failing command.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+  if (!process.env.OPENAI_API_KEY) {
+    console.error(
+      "Missing OPENAI_API_KEY. Set it before running live analysis, or run `reasonyou doctor` to inspect setup.",
     );
     process.exitCode = 1;
     return;
@@ -149,6 +163,7 @@ async function handleDoctor(): Promise<void> {
     ],
     ["Config path", true, configPath()],
     ["OpenAI base URL", true, (await loadConfig()).baseUrl ?? "default"],
+    ["OpenAI API mode", true, (await loadConfig()).openaiApi],
     ["History file", existsSync(historyPath()), historyPath()],
   ] as const;
   for (const [label, ok, detail] of checks) {
@@ -226,6 +241,7 @@ function parseConfigKey(value: string): keyof ReasonYouConfig {
   if (
     value === "model" ||
     value === "baseUrl" ||
+    value === "openaiApi" ||
     value === "language" ||
     value === "redact" ||
     value === "historyLimit"
@@ -233,6 +249,11 @@ function parseConfigKey(value: string): keyof ReasonYouConfig {
     return value;
   }
   throw new InvalidArgumentError(
-    "expected one of: model, baseUrl, language, redact, historyLimit",
+    "expected one of: model, baseUrl, openaiApi, language, redact, historyLimit",
   );
+}
+
+function parseOpenAIApiMode(value: string): "responses" | "chat" {
+  if (value === "responses" || value === "chat") return value;
+  throw new InvalidArgumentError("expected responses or chat");
 }

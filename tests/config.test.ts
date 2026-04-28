@@ -13,6 +13,7 @@ beforeEach(async () => {
   process.env.REASONYOU_CONFIG_PATH = join(tempDir, "config.json");
   delete process.env.REASONYOU_MODEL;
   delete process.env.REASONYOU_BASE_URL;
+  delete process.env.REASONYOU_OPENAI_API;
   delete process.env.OPENAI_BASE_URL;
   delete process.env.REASONYOU_LANGUAGE;
   delete process.env.REASONYOU_REDACT;
@@ -31,6 +32,7 @@ describe("config", () => {
       JSON.stringify({
         model: "user-model",
         baseUrl: "https://user.example/v1",
+        openaiApi: "chat",
         historyLimit: 10,
       }),
       "utf8",
@@ -44,6 +46,7 @@ describe("config", () => {
     });
     expect(config.model).toBe("flag-model");
     expect(config.baseUrl).toBe("https://flag.example/v1");
+    expect(config.openaiApi).toBe("chat");
     expect(config.language).toBe("zh-CN");
     expect(config.historyLimit).toBe(10);
   });
@@ -54,5 +57,31 @@ describe("config", () => {
     const config = await loadConfig();
 
     expect(config.baseUrl).toBe("https://openai-env.example/v1");
+  });
+
+  test("ignores undefined overrides instead of replacing defaults", async () => {
+    const config = await loadConfig({
+      model: undefined,
+      baseUrl: undefined,
+      openaiApi: undefined,
+      language: undefined,
+      redact: undefined,
+      historyLimit: undefined,
+    });
+
+    expect(config.model).toBe("gpt-5");
+    expect(config.baseUrl).toBeUndefined();
+    expect(config.openaiApi).toBe("responses");
+    expect(config.language).toBe("zh-CN");
+    expect(config.redact).toBe(true);
+    expect(config.historyLimit).toBe(50);
+  });
+
+  test("reads chat completion mode from environment", async () => {
+    process.env.REASONYOU_OPENAI_API = "chat";
+
+    const config = await loadConfig();
+
+    expect(config.openaiApi).toBe("chat");
   });
 });

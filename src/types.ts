@@ -1,6 +1,9 @@
+export type OpenAIApiMode = "responses" | "chat";
+
 export type ReasonYouConfig = {
   model: string;
   baseUrl?: string;
+  openaiApi: OpenAIApiMode;
   language: string;
   redact: boolean;
   historyLimit: number;

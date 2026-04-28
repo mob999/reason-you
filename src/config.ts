@@ -1,10 +1,11 @@
 import { dirname } from "node:path";
 import { configPath } from "./paths";
-import type { ReasonYouConfig } from "./types";
+import type { OpenAIApiMode, ReasonYouConfig } from "./types";
 
 export const DEFAULT_CONFIG: ReasonYouConfig = {
   model: "gpt-5",
   baseUrl: undefined,
+  openaiApi: "responses",
   language: "zh-CN",
   redact: true,
   historyLimit: 50,
@@ -27,7 +28,7 @@ export async function loadConfig(
     ...DEFAULT_CONFIG,
     ...(await loadUserConfig()),
     ...configFromEnv(),
-    ...overrides,
+    ...definedConfig(overrides),
   });
 }
 
@@ -49,6 +50,7 @@ export function configFromEnv(env = process.env): Partial<ReasonYouConfig> {
   return normalizePartialConfig({
     model: env.REASONYOU_MODEL,
     baseUrl: env.REASONYOU_BASE_URL ?? env.OPENAI_BASE_URL,
+    openaiApi: env.REASONYOU_OPENAI_API as OpenAIApiMode | undefined,
     language: env.REASONYOU_LANGUAGE,
     redact: env.REASONYOU_REDACT
       ? parseBoolean(env.REASONYOU_REDACT)
@@ -63,6 +65,7 @@ function normalizeConfig(config: ReasonYouConfig): ReasonYouConfig {
   return {
     model: nonEmpty(config.model, DEFAULT_CONFIG.model),
     baseUrl: optionalUrl(config.baseUrl),
+    openaiApi: openaiApiMode(config.openaiApi),
     language: nonEmpty(config.language, DEFAULT_CONFIG.language),
     redact: Boolean(config.redact),
     historyLimit: positiveInteger(
@@ -79,6 +82,8 @@ function normalizePartialConfig(
   if (config.model !== undefined)
     next.model = nonEmpty(config.model, DEFAULT_CONFIG.model);
   if (config.baseUrl !== undefined) next.baseUrl = optionalUrl(config.baseUrl);
+  if (config.openaiApi !== undefined)
+    next.openaiApi = openaiApiMode(config.openaiApi);
   if (config.language !== undefined)
     next.language = nonEmpty(config.language, DEFAULT_CONFIG.language);
   if (config.redact !== undefined) next.redact = Boolean(config.redact);
@@ -88,6 +93,14 @@ function normalizePartialConfig(
       DEFAULT_CONFIG.historyLimit,
     );
   return next;
+}
+
+function definedConfig(
+  config: Partial<ReasonYouConfig>,
+): Partial<ReasonYouConfig> {
+  return Object.fromEntries(
+    Object.entries(config).filter(([, value]) => value !== undefined),
+  ) as Partial<ReasonYouConfig>;
 }
 
 function parseConfigValue(
@@ -101,6 +114,10 @@ function parseConfigValue(
       DEFAULT_CONFIG.historyLimit,
     );
   return value;
+}
+
+function openaiApiMode(value: OpenAIApiMode | undefined): OpenAIApiMode {
+  return value === "chat" ? "chat" : DEFAULT_CONFIG.openaiApi;
 }
 
 function parseBoolean(value: string): boolean {
