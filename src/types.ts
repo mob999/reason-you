@@ -1,5 +1,6 @@
 export type ReasonYouConfig = {
   model: string;
+  baseUrl?: string;
   language: string;
   redact: boolean;
   historyLimit: number;

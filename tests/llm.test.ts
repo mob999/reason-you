@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { buildDiagnosticPrompt, parseDiagnosticText } from "../src/llm";
+import {
+  analyzeWithOpenAI,
+  buildDiagnosticPrompt,
+  parseDiagnosticText,
+} from "../src/llm";
 
 describe("llm prompt", () => {
   test("builds a stable diagnostic prompt", () => {
@@ -23,5 +27,41 @@ describe("llm prompt", () => {
     expect(parsed.summary).toBe("依赖缺失");
     expect(parsed.evidence).toBe("Cannot find module");
     expect(parsed.nextSteps).toEqual(["npm install", "npm test"]);
+  });
+
+  test("uses injected OpenAI-compatible responses client", async () => {
+    const result = await analyzeWithOpenAI(
+      {
+        command: "npm test",
+        cwd: "/repo",
+        exitCode: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        stderr: "TypeError",
+      },
+      {
+        model: "gpt-5",
+        baseUrl: "https://example.test/v1",
+        language: "zh-CN",
+        redact: true,
+        historyLimit: 50,
+      },
+      {
+        redacted: true,
+        client: {
+          responses: {
+            create: async (input) => {
+              expect(input.model).toBe("gpt-5");
+              return {
+                output_text:
+                  "原因\n测试失败。\n\n证据\nTypeError\n\n下一步\n- 修复类型",
+              };
+            },
+          },
+        },
+      },
+    );
+
+    expect(result.summary).toBe("测试失败");
+    expect(result.redacted).toBe(true);
   });
 });

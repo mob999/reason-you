@@ -17,6 +17,7 @@ import type { DiagnosticContext, ReasonYouConfig } from "./types";
 type AnalyzeOptions = {
   json?: boolean;
   model?: string;
+  baseUrl?: string;
   noRedact?: boolean;
 };
 
@@ -37,6 +38,7 @@ export function buildProgram(): Command {
     .helpCommand("help [command]", "display help for command")
     .option("--json", "print machine-readable JSON")
     .option("--model <model>", "override the OpenAI model for this run")
+    .option("--base-url <url>", "override the OpenAI-compatible base URL")
     .option("--no-redact", "send command context without local redaction")
     .action((options: AnalyzeOptions) => handleAnalyze(options));
 
@@ -76,6 +78,7 @@ export function buildProgram(): Command {
 async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
   const config = await loadConfig({
     model: options.model,
+    baseUrl: options.baseUrl,
     redact: options.noRedact ? false : undefined,
   });
   const record = await latestFailureRecord();
@@ -145,6 +148,7 @@ async function handleDoctor(): Promise<void> {
       "Run `reasonyou init` and restart your shell.",
     ],
     ["Config path", true, configPath()],
+    ["OpenAI base URL", true, (await loadConfig()).baseUrl ?? "default"],
     ["History file", existsSync(historyPath()), historyPath()],
   ] as const;
   for (const [label, ok, detail] of checks) {
@@ -221,6 +225,7 @@ function parseOptionalConfigKey(
 function parseConfigKey(value: string): keyof ReasonYouConfig {
   if (
     value === "model" ||
+    value === "baseUrl" ||
     value === "language" ||
     value === "redact" ||
     value === "historyLimit"
@@ -228,6 +233,6 @@ function parseConfigKey(value: string): keyof ReasonYouConfig {
     return value;
   }
   throw new InvalidArgumentError(
-    "expected one of: model, language, redact, historyLimit",
+    "expected one of: model, baseUrl, language, redact, historyLimit",
   );
 }

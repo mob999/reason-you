@@ -5,7 +5,14 @@ import type {
   ReasonYouConfig,
 } from "./types";
 
-export type OpenAIResponsesClient = Pick<OpenAI, "responses">;
+export type OpenAIResponsesClient = {
+  responses: {
+    create(input: {
+      model: string;
+      input: string;
+    }): Promise<{ output_text: string }>;
+  };
+};
 
 export function buildDiagnosticPrompt(
   context: DiagnosticContext,
@@ -33,7 +40,7 @@ export async function analyzeWithOpenAI(
   config: ReasonYouConfig,
   options: { client?: OpenAIResponsesClient; redacted: boolean },
 ): Promise<DiagnosticResult> {
-  const client = options.client ?? new OpenAI();
+  const client = options.client ?? new OpenAI({ baseURL: config.baseUrl });
   const response = await client.responses.create({
     model: config.model,
     input: buildDiagnosticPrompt(context, config.language),

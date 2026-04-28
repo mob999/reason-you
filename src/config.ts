@@ -4,6 +4,7 @@ import type { ReasonYouConfig } from "./types";
 
 export const DEFAULT_CONFIG: ReasonYouConfig = {
   model: "gpt-5",
+  baseUrl: undefined,
   language: "zh-CN",
   redact: true,
   historyLimit: 50,
@@ -47,6 +48,7 @@ export async function writeConfigValue(
 export function configFromEnv(env = process.env): Partial<ReasonYouConfig> {
   return normalizePartialConfig({
     model: env.REASONYOU_MODEL,
+    baseUrl: env.REASONYOU_BASE_URL ?? env.OPENAI_BASE_URL,
     language: env.REASONYOU_LANGUAGE,
     redact: env.REASONYOU_REDACT
       ? parseBoolean(env.REASONYOU_REDACT)
@@ -60,6 +62,7 @@ export function configFromEnv(env = process.env): Partial<ReasonYouConfig> {
 function normalizeConfig(config: ReasonYouConfig): ReasonYouConfig {
   return {
     model: nonEmpty(config.model, DEFAULT_CONFIG.model),
+    baseUrl: optionalUrl(config.baseUrl),
     language: nonEmpty(config.language, DEFAULT_CONFIG.language),
     redact: Boolean(config.redact),
     historyLimit: positiveInteger(
@@ -75,6 +78,7 @@ function normalizePartialConfig(
   const next: Partial<ReasonYouConfig> = {};
   if (config.model !== undefined)
     next.model = nonEmpty(config.model, DEFAULT_CONFIG.model);
+  if (config.baseUrl !== undefined) next.baseUrl = optionalUrl(config.baseUrl);
   if (config.language !== undefined)
     next.language = nonEmpty(config.language, DEFAULT_CONFIG.language);
   if (config.redact !== undefined) next.redact = Boolean(config.redact);
@@ -105,6 +109,11 @@ function parseBoolean(value: string): boolean {
 
 function nonEmpty(value: string, fallback: string): string {
   return value.trim() ? value : fallback;
+}
+
+function optionalUrl(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 function positiveInteger(value: number, fallback: number): number {
