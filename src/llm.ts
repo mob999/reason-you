@@ -10,6 +10,7 @@ export type OpenAIResponsesClient = {
     create(input: {
       model: string;
       input: string;
+      stream?: boolean;
     }): Promise<{ output_text: string }>;
   };
   chat?: {
@@ -17,6 +18,7 @@ export type OpenAIResponsesClient = {
       create(input: {
         model: string;
         messages: Array<{ role: "user"; content: string }>;
+        stream?: boolean;
       }): Promise<{ choices: Array<{ message: { content: string | null } }> }>;
     };
   };
@@ -56,12 +58,40 @@ export async function analyzeWithOpenAI(
   config: ReasonYouConfig,
   options: { client?: OpenAIResponsesClient; redacted: boolean },
 ): Promise<DiagnosticResult> {
-  const client = options.client ?? new OpenAI({ baseURL: config.baseUrl });
+  const client =
+    options.client ??
+    (new OpenAI({
+      baseURL: config.baseUrl,
+    }) as unknown as OpenAIResponsesClient);
   const prompt = buildDiagnosticPrompt(context, config.language);
   const outputText =
     config.openaiApi === "chat"
       ? await createChatCompletion(client, config.model, prompt)
       : await createResponse(client, config.model, prompt);
+
+  return {
+    ...parseDiagnosticText(outputText),
+    sourceCommand: context.command,
+    exitCode: context.exitCode,
+    redacted: options.redacted,
+  };
+}
+
+export async function analyzeWithOpenAIStream(
+  context: DiagnosticContext,
+  config: ReasonYouConfig,
+  options: { client?: OpenAIResponsesClient; redacted: boolean },
+): Promise<DiagnosticResult> {
+  const client =
+    options.client ??
+    (new OpenAI({
+      baseURL: config.baseUrl,
+    }) as unknown as OpenAIResponsesClient);
+  const prompt = buildDiagnosticPrompt(context, config.language);
+  const outputText =
+    config.openaiApi === "chat"
+      ? await collectChatCompletionStream(client, config.model, prompt)
+      : await collectResponseStream(client, config.model, prompt);
 
   return {
     ...parseDiagnosticText(outputText),
@@ -90,6 +120,89 @@ async function createChatCompletion(
     messages: [{ role: "user", content: prompt }],
   });
   return response?.choices[0]?.message.content ?? "";
+}
+
+async function collectResponseStream(
+  client: OpenAIResponsesClient,
+  model: string,
+  prompt: string,
+): Promise<string> {
+  const stream = await (
+    client.responses.create as unknown as (input: {
+      model: string;
+      input: string;
+      stream: true;
+    }) => Promise<AsyncIterable<Record<string, unknown>>>
+  )({ model, input: prompt, stream: true });
+
+  let output = "";
+  for await (const event of stream) {
+    output += responseStreamText(event);
+  }
+  return output;
+}
+
+async function collectChatCompletionStream(
+  client: OpenAIResponsesClient,
+  model: string,
+  prompt: string,
+): Promise<string> {
+  const create = client.chat?.completions.create as
+    | ((input: {
+        model: string;
+        messages: Array<{ role: "user"; content: string }>;
+        stream: true;
+      }) => Promise<AsyncIterable<Record<string, unknown>>>)
+    | undefined;
+  const stream = await create?.({
+    model,
+    messages: [{ role: "user", content: prompt }],
+    stream: true,
+  });
+
+  let output = "";
+  if (!stream) return output;
+  for await (const chunk of stream) {
+    output += chatStreamText(chunk);
+  }
+  return output;
+}
+
+function responseStreamText(event: Record<string, unknown>): string {
+  if (typeof event.delta === "string") return event.delta;
+  if (typeof event.output_text === "string") return event.output_text;
+  if (
+    event.type === "response.output_text.delta" &&
+    typeof event.delta === "string"
+  ) {
+    return event.delta;
+  }
+  return "";
+}
+
+function chatStreamText(chunk: Record<string, unknown>): string {
+  const choices = chunk.choices;
+  if (!Array.isArray(choices)) return "";
+  const first = choices[0] as { delta?: { content?: unknown } } | undefined;
+  return typeof first?.delta?.content === "string" ? first.delta.content : "";
+}
+
+export function formatDiagnosticResult(
+  diagnostic: Pick<DiagnosticResult, "reason" | "evidence" | "nextSteps">,
+): string {
+  const lines = [
+    "原因",
+    diagnostic.reason,
+    "",
+    "证据",
+    diagnostic.evidence || "暂无更多证据。",
+    "",
+    "下一步",
+    ...(diagnostic.nextSteps.length
+      ? diagnostic.nextSteps.map((step) => `- ${step}`)
+      : ["- 补充 stderr 后再次运行 reasonyou。"]),
+  ];
+  return `${lines.join("\n")}\n`;
 }
 
 export function parseDiagnosticText(

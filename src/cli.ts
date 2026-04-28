@@ -3,7 +3,11 @@ import { existsSync } from "node:fs";
 import { Command, InvalidArgumentError } from "commander";
 import { loadConfig, writeConfigValue } from "./config";
 import { hasUsefulStderr, latestFailureRecord } from "./history";
-import { analyzeWithOpenAI } from "./llm";
+import {
+  analyzeWithOpenAI,
+  analyzeWithOpenAIStream,
+  formatDiagnosticResult,
+} from "./llm";
 import { configPath, historyPath } from "./paths";
 import { redactText } from "./redact";
 import {
@@ -119,20 +123,15 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
     },
     config,
   );
-  const diagnostic = await analyzeWithOpenAI(context, config, { redacted });
+  const diagnostic = options.json
+    ? await analyzeWithOpenAI(context, config, { redacted })
+    : await analyzeWithOpenAIStream(context, config, { redacted });
   if (options.json) {
     console.log(JSON.stringify(diagnostic, null, 2));
     return;
   }
 
-  console.log(`原因\n${diagnostic.reason}\n`);
-  console.log(`证据\n${diagnostic.evidence || "暂无更多证据。"}\n`);
-  console.log("下一步");
-  for (const step of diagnostic.nextSteps.length
-    ? diagnostic.nextSteps
-    : ["补充 stderr 后再次运行 reasonyou。"]) {
-    console.log(`- ${step}`);
-  }
+  await typewriter(formatDiagnosticResult(diagnostic));
 }
 
 async function handleInit(options: InitOptions): Promise<void> {
@@ -224,6 +223,18 @@ async function rerunCommand(command: string, cwd: string): Promise<string> {
     child.on("close", () => resolve(output));
     child.on("error", (error) => resolve(error.message));
   });
+}
+
+async function typewriter(text: string): Promise<void> {
+  if (!process.stdout.isTTY) {
+    process.stdout.write(text);
+    return;
+  }
+
+  for (const char of text) {
+    process.stdout.write(char);
+    if (char !== "\n") await Bun.sleep(8);
+  }
 }
 
 function parseShell(value: string): SupportedShell {

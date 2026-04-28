@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   analyzeWithOpenAI,
+  analyzeWithOpenAIStream,
   buildDiagnosticPrompt,
+  formatDiagnosticResult,
   parseDiagnosticText,
 } from "../src/llm";
 
@@ -156,4 +158,123 @@ stderr 显示 No such file or directory。
 
     expect(result.summary).toBe("第三方接口可用");
   });
+
+  test("collects responses streaming output", async () => {
+    const result = await analyzeWithOpenAIStream(
+      {
+        command: "ls xxx",
+        cwd: "/repo",
+        exitCode: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        stderr: "ls: xxx: No such file or directory",
+      },
+      {
+        model: "gpt-5",
+        openaiApi: "responses",
+        language: "zh-CN",
+        redact: true,
+        historyLimit: 50,
+      },
+      {
+        redacted: true,
+        client: {
+          responses: {
+            create: async () =>
+              streamChunks([
+                {
+                  type: "response.output_text.delta",
+                  delta: '{"summary":"路径',
+                },
+                {
+                  type: "response.output_text.delta",
+                  delta: '不存在","reason":"目标不存在。",',
+                },
+                {
+                  type: "response.output_text.delta",
+                  delta: '"evidence":"stderr","nextSteps":["检查路径"]}',
+                },
+              ]) as never,
+          },
+        },
+      },
+    );
+
+    expect(result.summary).toBe("路径不存在");
+    expect(result.nextSteps).toEqual(["检查路径"]);
+  });
+
+  test("collects chat streaming output", async () => {
+    const result = await analyzeWithOpenAIStream(
+      {
+        command: "ls xxx",
+        cwd: "/repo",
+        exitCode: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        stderr: "ls: xxx: No such file or directory",
+      },
+      {
+        model: "third-party-model",
+        openaiApi: "chat",
+        language: "zh-CN",
+        redact: true,
+        historyLimit: 50,
+      },
+      {
+        redacted: true,
+        client: {
+          responses: {
+            create: async () => {
+              throw new Error("responses should not be used");
+            },
+          },
+          chat: {
+            completions: {
+              create: async () =>
+                streamChunks([
+                  { choices: [{ delta: { content: '{"summary":"路径' } }] },
+                  {
+                    choices: [
+                      {
+                        delta: { content: '不存在","reason":"目标不存在。",' },
+                      },
+                    ],
+                  },
+                  {
+                    choices: [
+                      {
+                        delta: {
+                          content:
+                            '"evidence":"stderr","nextSteps":["检查路径"]}',
+                        },
+                      },
+                    ],
+                  },
+                ]) as never,
+            },
+          },
+        },
+      },
+    );
+
+    expect(result.summary).toBe("路径不存在");
+    expect(result.nextSteps).toEqual(["检查路径"]);
+  });
+
+  test("formats diagnostics for terminal output", () => {
+    expect(
+      formatDiagnosticResult({
+        reason: "目标不存在。",
+        evidence: "stderr 显示 No such file or directory。",
+        nextSteps: ["检查路径"],
+      }),
+    ).toBe(
+      "原因\n目标不存在。\n\n证据\nstderr 显示 No such file or directory。\n\n下一步\n- 检查路径\n",
+    );
+  });
 });
+
+async function* streamChunks(chunks: Array<Record<string, unknown>>) {
+  for (const chunk of chunks) {
+    yield chunk;
+  }
+}
