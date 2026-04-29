@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check
+        run: bun run check
+
+      - name: Test
+        run: bun test
+
+      - name: Build release binaries
+        run: bun run build:release
+
+      - name: Generate changelog
+        run: |
+          previous_tag="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          if [ -n "$previous_tag" ]; then
+            range="${previous_tag}..${GITHUB_REF_NAME}"
+          else
+            range="${GITHUB_REF_NAME}"
+          fi
+
+          {
+            echo "## Changes"
+            echo
+            git log --pretty=format:'- %s (%h)' "$range"
+            echo
+          } > CHANGELOG.md
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: CHANGELOG.md
+          files: |
+            dist/reasonyou-bun-darwin-x64
+            dist/reasonyou-bun-darwin-arm64
+            dist/reasonyou-bun-linux-x64
+            dist/reasonyou-bun-linux-arm64
+            dist/reasonyou-bun-windows-x64.exe
+            dist/reasonyou-bun-windows-arm64.exe
