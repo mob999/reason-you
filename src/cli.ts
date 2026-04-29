@@ -1,11 +1,14 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { Command, InvalidArgumentError } from "commander";
+import { getCachedDiagnostic, saveCachedDiagnostic } from "./cache";
 import { loadConfig, writeConfigValue } from "./config";
 import { hasUsefulStderr, latestFailureRecord } from "./history";
 import {
   analyzeWithOpenAI,
   effectiveOpenAIApi,
+  formatDiagnosticResult,
+  parseDiagnosticText,
   streamDiagnosticText,
 } from "./llm";
 import { configPath, historyPath } from "./paths";
@@ -132,19 +135,39 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
     configured,
   );
   if (options.json) {
+    const cached = await getCachedDiagnostic(context, configured);
+    if (cached) {
+      console.log(JSON.stringify(cached, null, 2));
+      return;
+    }
     const diagnostic = await analyzeWithOpenAI(context, configured, {
       redacted,
     });
+    await saveCachedDiagnostic(context, configured, diagnostic);
     console.log(JSON.stringify(diagnostic, null, 2));
     return;
   }
 
+  const cached = await getCachedDiagnostic(context, configured);
+  if (cached) {
+    process.stdout.write(formatDiagnosticResult(cached));
+    return;
+  }
+
+  let streamedText = "";
   await streamDiagnosticText(context, configured, {
     onDelta: (text) => {
+      streamedText += text;
       process.stdout.write(text);
     },
   });
   process.stdout.write("\n");
+  await saveCachedDiagnostic(context, configured, {
+    ...parseDiagnosticText(streamedText),
+    sourceCommand: context.command,
+    exitCode: context.exitCode,
+    redacted,
+  });
 }
 
 async function handleInit(options: InitOptions): Promise<void> {

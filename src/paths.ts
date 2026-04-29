@@ -25,3 +25,7 @@ export function stateDir(): string {
 export function historyPath(): string {
   return process.env.REASONYOU_HISTORY_PATH ?? join(stateDir(), "errors.jsonl");
 }
+
+export function databasePath(): string {
+  return process.env.REASONYOU_DB_PATH ?? join(stateDir(), "reasonyou.db");
+}
