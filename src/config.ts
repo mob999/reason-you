@@ -10,6 +10,8 @@ export const DEFAULT_CONFIG: ReasonYouConfig = {
   openaiApi: "auto",
   language: "zh-CN",
   redact: true,
+  rerun: false,
+  displayThinking: false,
   historyLimit: 50,
 };
 
@@ -68,6 +70,10 @@ export function configFromEnv(env = process.env): Partial<ReasonYouConfig> {
     redact: env.REASONYOU_REDACT
       ? parseBoolean(env.REASONYOU_REDACT)
       : undefined,
+    rerun: env.REASONYOU_RERUN ? parseBoolean(env.REASONYOU_RERUN) : undefined,
+    displayThinking: env.REASONYOU_DISPLAY_THINKING
+      ? parseBoolean(env.REASONYOU_DISPLAY_THINKING)
+      : undefined,
     historyLimit: env.REASONYOU_HISTORY_LIMIT
       ? Number.parseInt(env.REASONYOU_HISTORY_LIMIT, 10)
       : undefined,
@@ -83,6 +89,8 @@ function normalizeConfig(config: ReasonYouConfig): ReasonYouConfig {
     openaiApi: openaiApiMode(config.openaiApi),
     language: nonEmpty(config.language, DEFAULT_CONFIG.language),
     redact: Boolean(config.redact),
+    rerun: Boolean(config.rerun),
+    displayThinking: Boolean(config.displayThinking),
     historyLimit: positiveInteger(
       config.historyLimit,
       DEFAULT_CONFIG.historyLimit,
@@ -104,6 +112,9 @@ function normalizePartialConfig(
   if (config.language !== undefined)
     next.language = nonEmpty(config.language, DEFAULT_CONFIG.language);
   if (config.redact !== undefined) next.redact = Boolean(config.redact);
+  if (config.rerun !== undefined) next.rerun = Boolean(config.rerun);
+  if (config.displayThinking !== undefined)
+    next.displayThinking = Boolean(config.displayThinking);
   if (config.historyLimit !== undefined)
     next.historyLimit = positiveInteger(
       config.historyLimit,
@@ -124,7 +135,8 @@ function parseConfigValue(
   key: keyof ReasonYouConfig,
   value: string,
 ): ReasonYouConfig[keyof ReasonYouConfig] {
-  if (key === "redact") return parseBoolean(value);
+  if (key === "redact" || key === "rerun" || key === "displayThinking")
+    return parseBoolean(value);
   if (key === "historyLimit")
     return positiveInteger(
       Number.parseInt(value, 10),

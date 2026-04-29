@@ -20,6 +20,8 @@ beforeEach(async () => {
   delete process.env.OPENAI_BASE_URL;
   delete process.env.REASONYOU_LANGUAGE;
   delete process.env.REASONYOU_REDACT;
+  delete process.env.REASONYOU_RERUN;
+  delete process.env.REASONYOU_DISPLAY_THINKING;
   delete process.env.REASONYOU_HISTORY_LIMIT;
 });
 
@@ -38,6 +40,8 @@ describe("config", () => {
         apiKey: "user-key",
         baseUrl: "https://user.example/v1",
         openaiApi: "chat",
+        rerun: true,
+        displayThinking: true,
         historyLimit: 10,
       }),
       "utf8",
@@ -56,6 +60,8 @@ describe("config", () => {
     expect(config.baseUrl).toBe("https://flag.example/v1");
     expect(config.openaiApi).toBe("chat");
     expect(config.language).toBe("zh-CN");
+    expect(config.rerun).toBe(true);
+    expect(config.displayThinking).toBe(true);
     expect(config.historyLimit).toBe(10);
   });
 
@@ -76,6 +82,8 @@ describe("config", () => {
       openaiApi: undefined,
       language: undefined,
       redact: undefined,
+      rerun: undefined,
+      displayThinking: undefined,
       historyLimit: undefined,
     });
 
@@ -86,7 +94,19 @@ describe("config", () => {
     expect(config.openaiApi).toBe("auto");
     expect(config.language).toBe("zh-CN");
     expect(config.redact).toBe(true);
+    expect(config.rerun).toBe(false);
+    expect(config.displayThinking).toBe(false);
     expect(config.historyLimit).toBe(50);
+  });
+
+  test("reads rerun and thinking defaults from environment", async () => {
+    process.env.REASONYOU_RERUN = "true";
+    process.env.REASONYOU_DISPLAY_THINKING = "yes";
+
+    const config = await loadConfig();
+
+    expect(config.rerun).toBe(true);
+    expect(config.displayThinking).toBe(true);
   });
 
   test("reads chat completion mode from environment", async () => {

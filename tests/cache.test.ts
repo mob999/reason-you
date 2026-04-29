@@ -60,6 +60,8 @@ function config(): ReasonYouConfig {
     openaiApi: "chat",
     language: "zh-CN",
     redact: true,
+    rerun: false,
+    displayThinking: false,
     historyLimit: 50,
   };
 }

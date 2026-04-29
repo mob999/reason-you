@@ -9,6 +9,8 @@ export type ReasonYouConfig = {
   openaiApi: OpenAIApiMode;
   language: string;
   redact: boolean;
+  rerun: boolean;
+  displayThinking: boolean;
   historyLimit: number;
 };
 

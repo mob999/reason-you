@@ -110,6 +110,12 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
     baseUrl: options.baseUrl,
     openaiApi: options.openaiApi,
     redact: options.noRedact ? false : undefined,
+    rerun: options.rerun,
+    displayThinking: options.displayThinking
+      ? true
+      : options.hideThinking
+        ? false
+        : undefined,
   });
   const configured = await ensureInteractiveConfig(config);
   const record = await latestFailureRecord();
@@ -144,7 +150,7 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
     configured,
   );
   if (options.json) {
-    const cached = options.rerun
+    const cached = configured.rerun
       ? null
       : await getCachedDiagnostic(context, configured);
     if (cached) {
@@ -159,7 +165,7 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
     return;
   }
 
-  const cached = options.rerun
+  const cached = configured.rerun
     ? null
     : await getCachedDiagnostic(context, configured);
   if (cached) {
@@ -167,7 +173,6 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
     return;
   }
 
-  const displayThinking = Boolean(options.displayThinking);
   if (options.displayThinking && options.hideThinking) {
     console.error(
       "Choose either --display-thinking or --hide-thinking, not both.",
@@ -182,7 +187,7 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
       streamedText += text;
       process.stdout.write(text);
     },
-    onThinkingDelta: displayThinking
+    onThinkingDelta: configured.displayThinking
       ? (text) => {
           process.stdout.write(text);
         }
@@ -327,12 +332,14 @@ function parseConfigKey(value: string): keyof ReasonYouConfig {
     value === "openaiApi" ||
     value === "language" ||
     value === "redact" ||
+    value === "rerun" ||
+    value === "displayThinking" ||
     value === "historyLimit"
   ) {
     return value;
   }
   throw new InvalidArgumentError(
-    "expected one of: provider, apiKey, model, baseUrl, openaiApi, language, redact, historyLimit",
+    "expected one of: provider, apiKey, model, baseUrl, openaiApi, language, redact, rerun, displayThinking, historyLimit",
   );
 }
 

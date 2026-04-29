@@ -101,6 +101,8 @@ stderr 显示 No such file or directory。
         openaiApi: "responses",
         language: "zh-CN",
         redact: true,
+        rerun: false,
+        displayThinking: false,
         historyLimit: 50,
       },
       {
@@ -142,6 +144,8 @@ stderr 显示 No such file or directory。
         openaiApi: "chat",
         language: "zh-CN",
         redact: true,
+        rerun: false,
+        displayThinking: false,
         historyLimit: 50,
       },
       {
@@ -192,6 +196,8 @@ stderr 显示 No such file or directory。
         openaiApi: "responses",
         language: "zh-CN",
         redact: true,
+        rerun: false,
+        displayThinking: false,
         historyLimit: 50,
       },
       {
@@ -236,6 +242,8 @@ stderr 显示 No such file or directory。
         openaiApi: "chat",
         language: "zh-CN",
         redact: true,
+        rerun: false,
+        displayThinking: false,
         historyLimit: 50,
       },
       {
@@ -295,6 +303,8 @@ stderr 显示 No such file or directory。
         openaiApi: "chat",
         language: "zh-CN",
         redact: true,
+        rerun: false,
+        displayThinking: false,
         historyLimit: 50,
       },
       {
@@ -341,6 +351,8 @@ stderr 显示 No such file or directory。
         openaiApi: "chat",
         language: "zh-CN",
         redact: true,
+        rerun: false,
+        displayThinking: false,
         historyLimit: 50,
       },
       {
@@ -379,6 +391,8 @@ stderr 显示 No such file or directory。
         openaiApi: "auto",
         language: "zh-CN",
         redact: true,
+        rerun: false,
+        displayThinking: false,
         historyLimit: 50,
       }),
     ).toBe("chat");
@@ -397,6 +411,8 @@ stderr 显示 No such file or directory。
         openaiApi: "auto",
         language: "zh-CN",
         redact: true,
+        rerun: false,
+        displayThinking: false,
         historyLimit: 50,
       },
       {
@@ -451,6 +467,8 @@ stderr 显示 No such file or directory。
         openaiApi: "chat",
         language: "zh-CN",
         redact: true,
+        rerun: false,
+        displayThinking: false,
         historyLimit: 50,
       },
       {
@@ -503,6 +521,8 @@ stderr 显示 No such file or directory。
         openaiApi: "chat",
         language: "zh-CN",
         redact: true,
+        rerun: false,
+        displayThinking: false,
         historyLimit: 50,
       },
       {
