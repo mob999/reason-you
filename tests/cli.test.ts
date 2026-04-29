@@ -10,6 +10,7 @@ describe("cli", () => {
     expect(help).toContain("init");
     expect(help).toContain("doctor");
     expect(help).toContain("config");
+    expect(help).toContain("--rerun");
     expect(help).toContain("--base-url <url>");
     expect(help).toContain("--openai-api <mode>");
     expect(help).toContain("--no-redact");

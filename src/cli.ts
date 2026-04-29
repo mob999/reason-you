@@ -29,6 +29,7 @@ import { VERSION } from "./version";
 
 type AnalyzeOptions = {
   json?: boolean;
+  rerun?: boolean;
   model?: string;
   baseUrl?: string;
   openaiApi?: "auto" | "responses" | "chat";
@@ -52,6 +53,7 @@ export function buildProgram(): Command {
     .version(VERSION, "--version", "print version")
     .helpCommand("help [command]", "display help for command")
     .option("--json", "print machine-readable JSON")
+    .option("--rerun", "ignore cached diagnostics and request a fresh analysis")
     .option("--model <model>", "override the OpenAI model for this run")
     .option("--base-url <url>", "override the OpenAI-compatible base URL")
     .option(
@@ -135,7 +137,9 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
     configured,
   );
   if (options.json) {
-    const cached = await getCachedDiagnostic(context, configured);
+    const cached = options.rerun
+      ? null
+      : await getCachedDiagnostic(context, configured);
     if (cached) {
       console.log(JSON.stringify(cached, null, 2));
       return;
@@ -148,7 +152,9 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
     return;
   }
 
-  const cached = await getCachedDiagnostic(context, configured);
+  const cached = options.rerun
+    ? null
+    : await getCachedDiagnostic(context, configured);
   if (cached) {
     process.stdout.write(formatDiagnosticResult(cached));
     return;
