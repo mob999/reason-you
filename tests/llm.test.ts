@@ -325,6 +325,51 @@ stderr 显示 No such file or directory。
     expect(deltas.join("")).toBe("原因:\n目标不存在。\n");
   });
 
+  test("trims leading whitespace before streamed terminal text", async () => {
+    const deltas: string[] = [];
+
+    await streamDiagnosticText(
+      {
+        command: "ls xxx",
+        cwd: "/repo",
+        exitCode: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        stderr: "ls: xxx: No such file or directory",
+      },
+      {
+        model: "third-party-model",
+        openaiApi: "chat",
+        language: "zh-CN",
+        redact: true,
+        historyLimit: 50,
+      },
+      {
+        onDelta: (text) => {
+          deltas.push(text);
+        },
+        client: {
+          responses: {
+            create: async () => {
+              throw new Error("responses should not be used");
+            },
+          },
+          chat: {
+            completions: {
+              create: async () =>
+                streamChunks([
+                  { choices: [{ delta: { content: "\n\n  " } }] },
+                  { choices: [{ delta: { content: "原因:\n" } }] },
+                  { choices: [{ delta: { content: "目标不存在。\n" } }] },
+                ]) as never,
+            },
+          },
+        },
+      },
+    );
+
+    expect(deltas.join("")).toBe("原因:\n目标不存在。\n");
+  });
+
   test("auto-detects MiniMax and hides thinking content without thinking params", async () => {
     expect(isMiniMaxBaseUrl("https://api.minimax.io/v1")).toBe(true);
     expect(

@@ -155,13 +155,14 @@ export async function streamDiagnosticText(
     }) as unknown as OpenAIResponsesClient);
   const prompt = buildDiagnosticTextPrompt(context, config.language);
   const apiMode = effectiveOpenAIApi(config);
+  const onDelta = trimLeadingStreamWhitespace(options.onDelta);
 
   if (apiMode === "chat") {
-    await streamChatCompletionText(client, config, prompt, options.onDelta);
+    await streamChatCompletionText(client, config, prompt, onDelta);
     return;
   }
 
-  await streamResponseText(client, config.model, prompt, options.onDelta);
+  await streamResponseText(client, config.model, prompt, onDelta);
 }
 
 async function createResponse(
@@ -284,6 +285,18 @@ function responseStreamText(event: Record<string, unknown>): string {
     return event.delta;
   }
   return "";
+}
+
+function trimLeadingStreamWhitespace(
+  onDelta: (text: string) => void | Promise<void>,
+): (text: string) => void | Promise<void> {
+  let started = false;
+  return (text) => {
+    const next = started ? text : text.trimStart();
+    if (!next) return;
+    started = true;
+    return onDelta(next);
+  };
 }
 
 function chatStreamText(chunk: Record<string, unknown>): string {
