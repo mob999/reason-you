@@ -145,6 +145,7 @@ export async function streamDiagnosticText(
   options: {
     client?: OpenAIResponsesClient;
     onDelta: (text: string) => void | Promise<void>;
+    onThinkingDelta?: (text: string) => void | Promise<void>;
   },
 ): Promise<void> {
   const client =
@@ -158,7 +159,13 @@ export async function streamDiagnosticText(
   const onDelta = trimLeadingStreamWhitespace(options.onDelta);
 
   if (apiMode === "chat") {
-    await streamChatCompletionText(client, config, prompt, onDelta);
+    await streamChatCompletionText(
+      client,
+      config,
+      prompt,
+      onDelta,
+      options.onThinkingDelta,
+    );
     return;
   }
 
@@ -209,6 +216,7 @@ async function streamChatCompletionText(
   config: ReasonYouConfig,
   prompt: string,
   onDelta: (text: string) => void | Promise<void>,
+  onThinkingDelta?: (text: string) => void | Promise<void>,
 ): Promise<void> {
   const stream = (await client.chat?.completions.create({
     model: config.model,
@@ -217,9 +225,11 @@ async function streamChatCompletionText(
   })) as AsyncIterable<Record<string, unknown>> | undefined;
 
   if (!stream) return;
-  const thinkFilter = new ThinkTagFilter();
+  const thinkFilter = new ThinkTagFilter(onThinkingDelta);
   for await (const chunk of stream) {
-    const text = thinkFilter.push(chatStreamText(chunk));
+    const { content, reasoning } = chatStreamText(chunk);
+    if (reasoning) await onThinkingDelta?.(reasoning);
+    const text = thinkFilter.push(content);
     if (text) await onDelta(text);
   }
 }
@@ -257,7 +267,7 @@ async function collectChatCompletionStream(
   if (!stream) return output;
   const thinkFilter = new ThinkTagFilter();
   for await (const chunk of stream) {
-    output += thinkFilter.push(chatStreamText(chunk));
+    output += thinkFilter.push(chatStreamText(chunk).content);
   }
   return output;
 }
@@ -299,9 +309,12 @@ function trimLeadingStreamWhitespace(
   };
 }
 
-function chatStreamText(chunk: Record<string, unknown>): string {
+function chatStreamText(chunk: Record<string, unknown>): {
+  content: string;
+  reasoning: string;
+} {
   const choices = chunk.choices;
-  if (!Array.isArray(choices)) return "";
+  if (!Array.isArray(choices)) return { content: "", reasoning: "" };
   const first = choices[0] as
     | {
         delta?: {
@@ -311,35 +324,67 @@ function chatStreamText(chunk: Record<string, unknown>): string {
         };
       }
     | undefined;
-  return typeof first?.delta?.content === "string" ? first.delta.content : "";
+  return {
+    content:
+      typeof first?.delta?.content === "string" ? first.delta.content : "",
+    reasoning:
+      typeof first?.delta?.reasoning_content === "string"
+        ? first.delta.reasoning_content
+        : "",
+  };
 }
 
 class ThinkTagFilter {
   private buffer = "";
+  private inThink = false;
+
+  constructor(private readonly onThinkingDelta?: (text: string) => void) {}
 
   push(text: string): string {
     this.buffer += text;
     let output = "";
 
     while (this.buffer) {
-      const start = this.buffer.indexOf("<think>");
-      if (start === -1) {
-        output += this.buffer;
-        this.buffer = "";
-        break;
+      if (this.inThink) {
+        const end = this.buffer.indexOf("</think>");
+        if (end === -1) {
+          const keep = partialSuffixLength(this.buffer, "</think>");
+          const thinking = this.buffer.slice(0, this.buffer.length - keep);
+          if (thinking) this.onThinkingDelta?.(thinking);
+          this.buffer = this.buffer.slice(this.buffer.length - keep);
+          break;
+        }
+        const thinking = this.buffer.slice(0, end);
+        if (thinking) this.onThinkingDelta?.(thinking);
+        this.buffer = this.buffer.slice(end + "</think>".length);
+        this.inThink = false;
+        continue;
       }
 
-      output += this.buffer.slice(0, start);
-      const end = this.buffer.indexOf("</think>", start);
-      if (end === -1) {
-        this.buffer = this.buffer.slice(start);
-        break;
+      const start = this.buffer.indexOf("<think>");
+      if (start >= 0) {
+        output += this.buffer.slice(0, start);
+        this.buffer = this.buffer.slice(start + "<think>".length);
+        this.inThink = true;
+        continue;
       }
-      this.buffer = this.buffer.slice(end + "</think>".length);
+
+      const keep = partialSuffixLength(this.buffer, "<think>");
+      output += this.buffer.slice(0, this.buffer.length - keep);
+      this.buffer = this.buffer.slice(this.buffer.length - keep);
+      break;
     }
 
     return output;
   }
+}
+
+function partialSuffixLength(text: string, token: string): number {
+  const max = Math.min(text.length, token.length - 1);
+  for (let length = max; length > 0; length -= 1) {
+    if (token.startsWith(text.slice(text.length - length))) return length;
+  }
+  return 0;
 }
 
 export function formatDiagnosticResult(

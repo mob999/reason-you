@@ -60,6 +60,8 @@ Useful options:
 ```bash
 reasonyou --json
 reasonyou --rerun
+reasonyou --display-thinking
+reasonyou --hide-thinking
 reasonyou --model gpt-5
 reasonyou config get
 reasonyou --version

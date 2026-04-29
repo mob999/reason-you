@@ -403,6 +403,9 @@ stderr 显示 No such file or directory。
         onDelta: (text) => {
           expect(text).not.toContain("<think>");
         },
+        onThinkingDelta: (text) => {
+          expect(text).toBe("hidden");
+        },
         client: {
           responses: {
             create: async () => {
@@ -429,6 +432,109 @@ stderr 显示 No such file or directory。
         },
       },
     );
+  });
+
+  test("streams reasoning content separately from terminal text", async () => {
+    const deltas: string[] = [];
+    const thinking: string[] = [];
+
+    await streamDiagnosticText(
+      {
+        command: "ls xxx",
+        cwd: "/repo",
+        exitCode: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        stderr: "ls: xxx: No such file or directory",
+      },
+      {
+        model: "third-party-model",
+        openaiApi: "chat",
+        language: "zh-CN",
+        redact: true,
+        historyLimit: 50,
+      },
+      {
+        onDelta: (text) => {
+          deltas.push(text);
+        },
+        onThinkingDelta: (text) => {
+          thinking.push(text);
+        },
+        client: {
+          responses: {
+            create: async () => {
+              throw new Error("responses should not be used");
+            },
+          },
+          chat: {
+            completions: {
+              create: async () =>
+                streamChunks([
+                  { choices: [{ delta: { reasoning_content: "step 1" } }] },
+                  {
+                    choices: [{ delta: { content: "<think>tagged</think>" } }],
+                  },
+                  { choices: [{ delta: { content: "原因:\n目标不存在。" } }] },
+                ]) as never,
+            },
+          },
+        },
+      },
+    );
+
+    expect(thinking).toEqual(["step 1", "tagged"]);
+    expect(deltas.join("")).toBe("原因:\n目标不存在。");
+  });
+
+  test("streams think tag content as it arrives", async () => {
+    const deltas: string[] = [];
+    const thinking: string[] = [];
+
+    await streamDiagnosticText(
+      {
+        command: "ls xxx",
+        cwd: "/repo",
+        exitCode: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        stderr: "ls: xxx: No such file or directory",
+      },
+      {
+        model: "third-party-model",
+        openaiApi: "chat",
+        language: "zh-CN",
+        redact: true,
+        historyLimit: 50,
+      },
+      {
+        onDelta: (text) => {
+          deltas.push(text);
+        },
+        onThinkingDelta: (text) => {
+          thinking.push(text);
+        },
+        client: {
+          responses: {
+            create: async () => {
+              throw new Error("responses should not be used");
+            },
+          },
+          chat: {
+            completions: {
+              create: async () =>
+                streamChunks([
+                  { choices: [{ delta: { content: "<think>one " } }] },
+                  { choices: [{ delta: { content: "two</th" } }] },
+                  { choices: [{ delta: { content: "ink>原因:\n" } }] },
+                  { choices: [{ delta: { content: "目标不存在。" } }] },
+                ]) as never,
+            },
+          },
+        },
+      },
+    );
+
+    expect(thinking).toEqual(["one ", "two"]);
+    expect(deltas.join("")).toBe("原因:\n目标不存在。");
   });
 
   test("removes think tags before parsing JSON output", () => {

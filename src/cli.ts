@@ -30,6 +30,8 @@ import { VERSION } from "./version";
 type AnalyzeOptions = {
   json?: boolean;
   rerun?: boolean;
+  displayThinking?: boolean;
+  hideThinking?: boolean;
   model?: string;
   baseUrl?: string;
   openaiApi?: "auto" | "responses" | "chat";
@@ -54,6 +56,11 @@ export function buildProgram(): Command {
     .helpCommand("help [command]", "display help for command")
     .option("--json", "print machine-readable JSON")
     .option("--rerun", "ignore cached diagnostics and request a fresh analysis")
+    .option(
+      "--display-thinking",
+      "display model thinking output when available",
+    )
+    .option("--hide-thinking", "hide model thinking output")
     .option("--model <model>", "override the OpenAI model for this run")
     .option("--base-url <url>", "override the OpenAI-compatible base URL")
     .option(
@@ -160,12 +167,26 @@ async function handleAnalyze(options: AnalyzeOptions): Promise<void> {
     return;
   }
 
+  const displayThinking = Boolean(options.displayThinking);
+  if (options.displayThinking && options.hideThinking) {
+    console.error(
+      "Choose either --display-thinking or --hide-thinking, not both.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   let streamedText = "";
   await streamDiagnosticText(context, configured, {
     onDelta: (text) => {
       streamedText += text;
       process.stdout.write(text);
     },
+    onThinkingDelta: displayThinking
+      ? (text) => {
+          process.stdout.write(text);
+        }
+      : undefined,
   });
   process.stdout.write("\n");
   await saveCachedDiagnostic(context, configured, {
